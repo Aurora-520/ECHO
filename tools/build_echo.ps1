@@ -62,7 +62,7 @@ function Invoke-KeilBuild {
     $summary = $matches[$matches.Count - 1]
     $errors = [int]$summary.Groups["errors"].Value
     $warnings = [int]$summary.Groups["warnings"].Value
-    if ($errors -ne 0) {
+    if (($errors -ne 0) -or ($warnings -ne 0)) {
         throw "$Target failed with $errors error(s) and $warnings warning(s)."
     }
     Write-Host "$Target succeeded with $warnings warning(s)." -ForegroundColor Green
@@ -76,6 +76,14 @@ if (-not $buildKernel -and (Test-Path -LiteralPath $configHeader)) {
         (Get-Item -LiteralPath $kernelLibrary).LastWriteTimeUtc
     if ($buildKernel) {
         Write-Host "FreeRTOSConfig.h changed; rebuilding the kernel library." -ForegroundColor Yellow
+    }
+}
+
+if (-not $buildKernel -and (Test-Path -LiteralPath $kernelProject)) {
+    $buildKernel = (Get-Item -LiteralPath $kernelProject).LastWriteTimeUtc -gt `
+        (Get-Item -LiteralPath $kernelLibrary).LastWriteTimeUtc
+    if ($buildKernel) {
+        Write-Host "FreeRTOS project changed; rebuilding the kernel library." -ForegroundColor Yellow
     }
 }
 
@@ -95,6 +103,14 @@ if (-not $rebuildApp -and (Test-Path -LiteralPath $kernelLibrary)) {
         (Get-Item -LiteralPath $appImage).LastWriteTimeUtc
     if ($rebuildApp) {
         Write-Host "FreeRTOS library changed; relinking the application." -ForegroundColor Yellow
+    }
+}
+
+if (-not $rebuildApp -and (Test-Path -LiteralPath $appProject)) {
+    $rebuildApp = (Get-Item -LiteralPath $appProject).LastWriteTimeUtc -gt `
+        (Get-Item -LiteralPath $appImage).LastWriteTimeUtc
+    if ($rebuildApp) {
+        Write-Host "ECHO project changed; rebuilding the application." -ForegroundColor Yellow
     }
 }
 

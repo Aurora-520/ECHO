@@ -1,10 +1,7 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
 <Project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project_projx.xsd">
-
   <SchemaVersion>2.1</SchemaVersion>
-
   <Header>### uVision Project, (C) Keil Software</Header>
-
   <Targets>
     <Target>
       <TargetName>freertos_ECHO</TargetName>
@@ -445,11 +442,6 @@
               <FilePath>D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0\portasm.c</FilePath>
             </File>
             <File>
-              <FileName>AppHooks_freertos.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\dpl\AppHooks_freertos.c</FilePath>
-            </File>
-            <File>
               <FileName>ClockP_freertos.c</FileName>
               <FileType>1</FileType>
               <FilePath>D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\dpl\ClockP_freertos.c</FilePath>
@@ -475,11 +467,6 @@
               <FilePath>D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\dpl\SystemP_freertos.c</FilePath>
             </File>
             <File>
-              <FileName>StaticAllocs_freertos.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\dpl\StaticAllocs_freertos.c</FilePath>
-            </File>
-            <File>
               <FileName>TaskP_freertos.c</FileName>
               <FileType>1</FileType>
               <FilePath>D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\dpl\TaskP_freertos.c</FilePath>
@@ -499,13 +486,11 @@
       </Groups>
     </Target>
   </Targets>
-
   <RTE>
-    <apis/>
-    <components/>
-    <files/>
+    <apis />
+    <components />
+    <files />
   </RTE>
-
   <LayerInfo>
     <Layers>
       <Layer>
@@ -514,5 +499,4 @@
       </Layer>
     </Layers>
   </LayerInfo>
-
 </Project>

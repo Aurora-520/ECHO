@@ -49,6 +49,11 @@ $kernelProject = Join-Path $EchoPaths.ProjectRoot "freertos\keil\freertos_ECHO.u
 [xml]$app = Get-Content -LiteralPath $appProject -Raw
 $appTarget = $app.Project.Targets.Target
 $appTarget.TargetOption.TargetArmAds.Cads.VariousControls.IncludePath = @(
+    "..\app"
+    "..\app\tasks"
+    "..\bsp\include"
+    "..\config"
+    "..\platform\freertos"
     "..\platform\generated"
     "..\freertos"
     (Join-SdkPath "source\third_party\CMSIS\Core\Include")
@@ -82,13 +87,11 @@ $kernelCoreFiles = @(
     "timers.c"
 )
 $dplFiles = @(
-    "AppHooks_freertos.c"
     "ClockP_freertos.c"
     "DebugP_freertos.c"
     "MutexP_freertos.c"
     "SemaphoreP_freertos.c"
     "SystemP_freertos.c"
-    "StaticAllocs_freertos.c"
     "TaskP_freertos.c"
     "HwiPMSPM0_freertos.c"
 )
@@ -132,8 +135,12 @@ $cppPath = Join-Path $EchoPaths.ProjectRoot ".vscode\c_cpp_properties.json"
 $cpp = [System.IO.File]::ReadAllText($cppPath) | ConvertFrom-Json
 $cppConfiguration = $cpp.configurations[0]
 $cppConfiguration.compilerPath = Convert-ToForwardSlash (Join-Path $EchoPaths.ArmClangBin "armclang.exe")
+$cppConfiguration.cStandard = "c99"
 $cppConfiguration.includePath = @(
     '${workspaceFolder}/app'
+    '${workspaceFolder}/app/tasks'
+    '${workspaceFolder}/bsp/include'
+    '${workspaceFolder}/platform/freertos'
     '${workspaceFolder}/config'
     '${workspaceFolder}/platform/generated'
     '${workspaceFolder}/freertos'

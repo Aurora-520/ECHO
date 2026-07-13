@@ -1,10 +1,7 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
 <Project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project_projx.xsd">
-
   <SchemaVersion>2.1</SchemaVersion>
-
   <Header>### uVision Project, (C) Keil Software</Header>
-
   <Targets>
     <Target>
       <TargetName>ECHO</TargetName>
@@ -340,7 +337,7 @@
               <MiscControls></MiscControls>
               <Define>__MSPM0G3507__</Define>
               <Undefine></Undefine>
-              <IncludePath>..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
+              <IncludePath>..\app;..\app\tasks;..\bsp\include;..\config;..\platform\freertos;..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -382,7 +379,7 @@
       </TargetOption>
       <Groups>
         <Group>
-          <GroupName>Source</GroupName>
+          <GroupName>Application</GroupName>
           <Files>
             <File>
               <FileName>main.c</FileName>
@@ -390,10 +387,35 @@
               <FilePath>..\app\main.c</FilePath>
             </File>
             <File>
-              <FileName>main-blinky.c</FileName>
+              <FileName>app_tasks.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\app\main-blinky.c</FilePath>
+              <FilePath>..\app\tasks\app_tasks.c</FilePath>
             </File>
+            <File>
+              <FileName>system_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\tasks\system_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>service_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\tasks\service_task.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>BSP</GroupName>
+          <Files>
+            <File>
+              <FileName>bsp_led.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_led.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Platform</GroupName>
+          <Files>
             <File>
               <FileName>ECHO.syscfg</FileName>
               <FileType>5</FileType>
@@ -414,18 +436,26 @@
               <FileType>1</FileType>
               <FilePath>..\platform\generated\ti_msp_dl_config.c</FilePath>
             </File>
+            <File>
+              <FileName>rtos_diagnostics.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\platform\freertos\rtos_diagnostics.c</FilePath>
+            </File>
+            <File>
+              <FileName>rtos_hooks.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\platform\freertos\rtos_hooks.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>
     </Target>
   </Targets>
-
   <RTE>
-    <apis/>
-    <components/>
-    <files/>
+    <apis />
+    <components />
+    <files />
   </RTE>
-
   <LayerInfo>
     <Layers>
       <Layer>
@@ -434,5 +464,4 @@
       </Layer>
     </Layers>
   </LayerInfo>
-
 </Project>

@@ -10,6 +10,9 @@
                                                 ],
                                "includePath":  [
                                                    "${workspaceFolder}/app",
+                                                   "${workspaceFolder}/app/tasks",
+                                                   "${workspaceFolder}/bsp/include",
+                                                   "${workspaceFolder}/platform/freertos",
                                                    "${workspaceFolder}/config",
                                                    "${workspaceFolder}/platform/generated",
                                                    "${workspaceFolder}/freertos",
@@ -21,7 +24,7 @@
                                "defines":  [
                                                "__MSPM0G3507__"
                                            ],
-                               "cStandard":  "c11",
+                               "cStandard":  "c99",
                                "cppStandard":  "c++17",
                                "intelliSenseMode":  "windows-clang-arm"
                            }
