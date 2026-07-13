@@ -1,0 +1,24 @@
+/**
+ * ECHO phase-0 configuration.
+ * FreeRTOS official blink example adapted to the Tianmengxing PB22 LED.
+ */
+//@cliArgs --device "MSPM0G350X" --package "LQFP-64(PM)" --part "Default"
+//@v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)"
+// @cliArgs --board /ti/boards/LP_MSPM0G3507 --rtos freertos
+
+const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
+const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
+const GPIO1  = GPIO.addInstance();
+const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+
+ProjectConfig.genDisable = true;
+
+GPIO1.$name                          = "GPIO_LEDS";
+GPIO1.associatedPins[0].$name        = "USER_LED_1";
+GPIO1.associatedPins[0].assignedPin  = "22";
+GPIO1.associatedPins[0].initialValue = "SET";
+GPIO1.associatedPins[0].internalResistor = "PULL_DOWN";
+GPIO1.associatedPins[0].pin.$assign  = "PB22";
+
+const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
+SYSCTL.clockTreeEn = true;

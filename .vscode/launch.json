@@ -1,0 +1,64 @@
+{
+    "version":  "0.2.0",
+    "configurations":  [
+                           {
+                               "name":  "ECHO: Debug (DAPLink + OpenOCD)",
+                               "type":  "cortex-debug",
+                               "request":  "launch",
+                               "cwd":  "${workspaceFolder}",
+                               "executable":  "${workspaceFolder}/keil/Objects/ECHO.axf",
+                               "loadFiles":  [
+                                                 "${workspaceFolder}/keil/Objects/ECHO.hex"
+                                             ],
+                               "servertype":  "openocd",
+                               "openOCDPath":  "D:/sftoware/openOCD/xpack-openocd-0.12.0-7-win32-x64/xpack-openocd-0.12.0-7/bin/openocd.exe",
+                               "searchDir":  [
+                                                 "D:/sftoware/openOCD/xpack-openocd-0.12.0-7-win32-x64/xpack-openocd-0.12.0-7/openocd/scripts"
+                                             ],
+                               "configFiles":  [
+                                                   "interface/cmsis-dap.cfg",
+                                                   "target/ti_mspm0.cfg"
+                                               ],
+                               "openOCDLaunchCommands":  [
+                                                             "adapter speed 1000"
+                                                         ],
+                               "armToolchainPath":  "D:/sftoware/cube CLT/STM32CubeCLT_1.18.0/GNU-tools-for-STM32/bin",
+                               "svdFile":  "${workspaceFolder}/.tools/packs/MSPM0G350X.svd",
+                               "preLaunchTask":  "ECHO: Prepare Debug",
+                               "postDebugTask":  "ECHO: Stop Stale Debug Servers",
+                               "runToEntryPoint":  "main",
+                               "showDevDebugOutput":  "none"
+                           },
+                           {
+                               "name":  "ECHO: Debug (DAPLink + pyOCD fallback)",
+                               "type":  "cortex-debug",
+                               "request":  "launch",
+                               "cwd":  "${workspaceFolder}",
+                               "executable":  "${workspaceFolder}/keil/Objects/ECHO.axf",
+                               "loadFiles":  [
+                                                 "${workspaceFolder}/keil/Objects/ECHO.hex"
+                                             ],
+                               "servertype":  "pyocd",
+                               "serverpath":  "${workspaceFolder}/.tools/pyocd/Scripts/pyocd.exe",
+                               "targetId":  "mspm0g3507",
+                               "cmsisPack":  "${workspaceFolder}/.tools/packs/TexasInstruments.MSPM0G1X0X_G3X0X_DFP.1.3.1.pack",
+                               "serverArgs":  [
+                                                  "--frequency",
+                                                  "1000000",
+                                                  "--connect",
+                                                  "halt",
+                                                  "--no-config",
+                                                  "-O",
+                                                  "auto_unlock=false",
+                                                  "-O",
+                                                  "resume_on_disconnect=false"
+                                              ],
+                               "armToolchainPath":  "D:/sftoware/cube CLT/STM32CubeCLT_1.18.0/GNU-tools-for-STM32/bin",
+                               "svdFile":  "${workspaceFolder}/.tools/packs/MSPM0G350X.svd",
+                               "preLaunchTask":  "ECHO: Prepare Debug",
+                               "postDebugTask":  "ECHO: Stop Stale Debug Servers",
+                               "runToEntryPoint":  "main",
+                               "showDevDebugOutput":  "none"
+                           }
+                       ]
+}

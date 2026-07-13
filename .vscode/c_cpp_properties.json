@@ -1,0 +1,30 @@
+{
+    "configurations":  [
+                           {
+                               "name":  "ECHO-MSPM0G3507",
+                               "compilerPath":  "D:/keil mdk/ARM/ARMCLANG/bin/armclang.exe",
+                               "compilerArgs":  [
+                                                    "--target=arm-arm-none-eabi",
+                                                    "-mcpu=cortex-m0plus",
+                                                    "-mthumb"
+                                                ],
+                               "includePath":  [
+                                                   "${workspaceFolder}/app",
+                                                   "${workspaceFolder}/config",
+                                                   "${workspaceFolder}/platform/generated",
+                                                   "${workspaceFolder}/freertos",
+                                                   "D:/sftoware/TI_CCS/mspm0_sdk_2_10_00_04/source",
+                                                   "D:/sftoware/TI_CCS/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include",
+                                                   "D:/sftoware/TI_CCS/mspm0_sdk_2_10_00_04/kernel/freertos/Source/include",
+                                                   "D:/sftoware/TI_CCS/mspm0_sdk_2_10_00_04/kernel/freertos/Source/portable/GCC/ARM_CM0"
+                                               ],
+                               "defines":  [
+                                               "__MSPM0G3507__"
+                                           ],
+                               "cStandard":  "c11",
+                               "cppStandard":  "c++17",
+                               "intelliSenseMode":  "windows-clang-arm"
+                           }
+                       ],
+    "version":  4
+}

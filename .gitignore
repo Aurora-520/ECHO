@@ -1,0 +1,27 @@
+# Machine-local dependencies and configuration
+.tools/pyocd/
+config/local_paths.ps1
+
+# Keil user state and build products
+*.uvguix.*
+*.uvgui.*
+*.uvoptx
+**/Objects/
+**/Listings/
+*.map
+*.lst
+*.i
+*.d
+*.o
+*.axf
+*.hex
+*.lib
+*.lnp
+*.dep
+*.htm
+
+# Generated diagnostics and temporary files
+platform/generated/Event.dot
+*.log
+*.tmp
+~$*

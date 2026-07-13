@@ -1,0 +1,16 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.errorSquiggles": "enabled",
+    "files.associations": {
+        "*.syscfg": "javascript",
+        "FreeRTOSConfig.h": "c"
+    },
+    "search.exclude": {
+        "**/Objects": true,
+        "**/Listings": true
+    },
+    "files.watcherExclude": {
+        "**/Objects/**": true,
+        "**/Listings/**": true
+    }
+}
