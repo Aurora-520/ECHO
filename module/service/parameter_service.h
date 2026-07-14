@@ -59,5 +59,7 @@ void ParameterService_Init(void);
  */
 void ParameterService_ProcessRx(void);
 void ParameterService_ApplyPendingAtControlBoundary(void);
+void ParameterService_GetSnapshot(
+    control_tuning_parameters_t *snapshot);
 
 #endif

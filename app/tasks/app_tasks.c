@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "FreeRTOS.h"
+#include "display_task.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
 #include "rtos_hooks.h"
@@ -16,12 +17,15 @@
 #define APP_SYSTEM_TASK_PRIORITY     (tskIDLE_PRIORITY + 2U)
 #define APP_SERVICE_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
 #define APP_TELEMETRY_TASK_PRIORITY  (tskIDLE_PRIORITY + 1U)
+#define APP_DISPLAY_TASK_PRIORITY    tskIDLE_PRIORITY
 #define APP_HEARTBEAT_QUEUE_LENGTH   1U
 
 static StaticTask_t s_system_task_tcb;
 static StackType_t s_system_task_stack[APP_SYSTEM_TASK_STACK_WORDS];
 static StaticTask_t s_service_task_tcb;
 static StackType_t s_service_task_stack[APP_SERVICE_TASK_STACK_WORDS];
+static StaticTask_t s_display_task_tcb;
+static StackType_t s_display_task_stack[DISPLAY_TASK_STACK_WORDS];
 
 static StaticQueue_t s_heartbeat_queue_control;
 static uint32_t s_heartbeat_queue_storage[APP_HEARTBEAT_QUEUE_LENGTH];
@@ -32,6 +36,7 @@ void AppTasks_CreateAll(void)
     TaskHandle_t system_task;
     TaskHandle_t service_task;
     TaskHandle_t telemetry_task;
+    TaskHandle_t display_task;
 
     heartbeat_queue = xQueueCreateStatic(APP_HEARTBEAT_QUEUE_LENGTH,
         sizeof(s_heartbeat_queue_storage[0]),
@@ -40,6 +45,7 @@ void AppTasks_CreateAll(void)
         RtosFault_Halt(RTOS_FAULT_QUEUE_CREATE, NULL, NULL, 0);
     }
     vQueueAddToRegistry(heartbeat_queue, "HeartbeatQ");
+    DisplayTask_Init();
 
     system_task = xTaskCreateStatic(SystemTask_Entry, "System",
         APP_SYSTEM_TASK_STACK_WORDS, heartbeat_queue,
@@ -61,7 +67,16 @@ void AppTasks_CreateAll(void)
             "Telemetry", 0);
     }
 
+    display_task = xTaskCreateStatic(DisplayTask_Entry, "Display",
+        DISPLAY_TASK_STACK_WORDS, NULL, APP_DISPLAY_TASK_PRIORITY,
+        s_display_task_stack, &s_display_task_tcb);
+    if (display_task == NULL) {
+        RtosFault_Halt(RTOS_FAULT_DISPLAY_TASK_CREATE, system_task,
+            "Display", 0);
+    }
+
     RtosDiagnostics_SetObjects(system_task, service_task, telemetry_task,
-        heartbeat_queue, APP_SYSTEM_TASK_STACK_WORDS,
-        APP_SERVICE_TASK_STACK_WORDS, TELEMETRY_TASK_STACK_WORDS);
+        display_task, heartbeat_queue, APP_SYSTEM_TASK_STACK_WORDS,
+        APP_SERVICE_TASK_STACK_WORDS, TELEMETRY_TASK_STACK_WORDS,
+        DISPLAY_TASK_STACK_WORDS);
 }

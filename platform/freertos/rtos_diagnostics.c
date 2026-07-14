@@ -89,10 +89,11 @@ void RtosDiagnostics_Init(uint32_t timebase_frequency_hz)
 
 void RtosDiagnostics_SetObjects(TaskHandle_t system_task,
     TaskHandle_t service_task, TaskHandle_t telemetry_task,
-    QueueHandle_t heartbeat_queue,
+    TaskHandle_t display_task, QueueHandle_t heartbeat_queue,
     configSTACK_DEPTH_TYPE system_stack_words,
     configSTACK_DEPTH_TYPE service_stack_words,
-    configSTACK_DEPTH_TYPE telemetry_stack_words)
+    configSTACK_DEPTH_TYPE telemetry_stack_words,
+    configSTACK_DEPTH_TYPE display_stack_words)
 {
     configSTACK_DEPTH_TYPE invalid =
         (configSTACK_DEPTH_TYPE) ~(configSTACK_DEPTH_TYPE) 0U;
@@ -100,17 +101,20 @@ void RtosDiagnostics_SetObjects(TaskHandle_t system_task,
     g_rtos_diag.system_task_handle = system_task;
     g_rtos_diag.service_task_handle = service_task;
     g_rtos_diag.telemetry_task_handle = telemetry_task;
+    g_rtos_diag.display_task_handle = display_task;
     g_rtos_diag.heartbeat_queue_handle = heartbeat_queue;
 
     g_rtos_diag.system_stack_allocated_words = system_stack_words;
     g_rtos_diag.service_stack_allocated_words = service_stack_words;
     g_rtos_diag.telemetry_stack_allocated_words = telemetry_stack_words;
+    g_rtos_diag.display_stack_allocated_words = display_stack_words;
     g_rtos_diag.idle_stack_allocated_words = configIDLE_TASK_STACK_DEPTH;
     g_rtos_diag.timer_stack_allocated_words = configTIMER_TASK_STACK_DEPTH;
 
     g_rtos_diag.system_stack_min_free_words = invalid;
     g_rtos_diag.service_stack_min_free_words = invalid;
     g_rtos_diag.telemetry_stack_min_free_words = invalid;
+    g_rtos_diag.display_stack_min_free_words = invalid;
     g_rtos_diag.idle_stack_min_free_words = invalid;
     g_rtos_diag.timer_stack_min_free_words = invalid;
 }
@@ -275,6 +279,8 @@ void RtosDiagnostics_Refresh(void)
         uxTaskGetStackHighWaterMark2(g_rtos_diag.service_task_handle);
     g_rtos_diag.telemetry_stack_min_free_words =
         uxTaskGetStackHighWaterMark2(g_rtos_diag.telemetry_task_handle);
+    g_rtos_diag.display_stack_min_free_words =
+        uxTaskGetStackHighWaterMark2(g_rtos_diag.display_task_handle);
     g_rtos_diag.idle_stack_min_free_words =
         uxTaskGetStackHighWaterMark2(g_rtos_diag.idle_task_handle);
     g_rtos_diag.timer_stack_min_free_words =
@@ -289,6 +295,9 @@ void RtosDiagnostics_Refresh(void)
     g_rtos_diag.telemetry_stack_max_used_words = RtosDiagnostics_StackUsed(
         g_rtos_diag.telemetry_stack_allocated_words,
         g_rtos_diag.telemetry_stack_min_free_words);
+    g_rtos_diag.display_stack_max_used_words = RtosDiagnostics_StackUsed(
+        g_rtos_diag.display_stack_allocated_words,
+        g_rtos_diag.display_stack_min_free_words);
     g_rtos_diag.idle_stack_max_used_words = RtosDiagnostics_StackUsed(
         g_rtos_diag.idle_stack_allocated_words,
         g_rtos_diag.idle_stack_min_free_words);
@@ -304,6 +313,32 @@ void RtosDiagnostics_Refresh(void)
     g_rtos_diag.diagnostics_valid = 1U;
 
     g_rtos_diag.diagnostics_update_sequence++;
+}
+
+
+void RtosDiagnostics_GetUiSnapshot(rtos_ui_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    snapshot->system_last_period_us = g_rtos_diag.system_last_period_us;
+    snapshot->system_last_execution_us = g_rtos_diag.system_last_execution_us;
+    snapshot->system_last_jitter_us = g_rtos_diag.system_last_jitter_us;
+    snapshot->system_deadline_miss_count =
+        g_rtos_diag.system_deadline_miss_count;
+    snapshot->fault_code = g_rtos_diag.fault_code;
+    snapshot->system_stack_min_free_words =
+        g_rtos_diag.system_stack_min_free_words;
+    snapshot->service_stack_min_free_words =
+        g_rtos_diag.service_stack_min_free_words;
+    snapshot->telemetry_stack_min_free_words =
+        g_rtos_diag.telemetry_stack_min_free_words;
+    snapshot->display_stack_min_free_words =
+        g_rtos_diag.display_stack_min_free_words;
+    snapshot->heap_free_bytes = g_rtos_diag.heap_free_bytes;
+    taskEXIT_CRITICAL();
 }
 
 void RtosDiagnostics_RecordFault(rtos_fault_code_t code, TaskHandle_t task,

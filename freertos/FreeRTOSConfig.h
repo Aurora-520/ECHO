@@ -142,7 +142,7 @@
  * application task if there is an Idle priority (priority 0) application task that
  * can run.  Set to 0 to have the Idle task use all of its timeslice.  Default to 1
  * if left undefined. */
-#define configIDLE_SHOULD_YIELD                    0
+#define configIDLE_SHOULD_YIELD                    1
 
 /* Each task has an array of task notifications.
  * configTASK_NOTIFICATION_ARRAY_ENTRIES sets the number of indexes in the array.

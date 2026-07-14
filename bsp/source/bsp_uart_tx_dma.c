@@ -98,6 +98,8 @@ void BSP_UartTxDma_Abort(void)
         DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
     s_diagnostics.active_length = 0U;
     s_diagnostics.dma_busy = 0U;
+    s_diagnostics.line_idle =
+        DL_UART_Main_isBusy(DEBUG_UART_INST) ? 0U : 1U;
     s_diagnostics.abort_count++;
     __DMB();
 }

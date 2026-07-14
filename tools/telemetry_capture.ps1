@@ -1,7 +1,7 @@
 param(
     [string]$Port = "COM4",
-    [ValidateSet(115200, 460800, 921600)]
-    [int]$BaudRate = 460800,
+    [ValidateSet(115200, 230400, 460800, 921600)]
+    [int]$BaudRate = 230400,
     [ValidateRange(1, 900)]
     [int]$DurationSeconds = 10,
     [ValidateRange(0, 10)]
@@ -62,7 +62,9 @@ $serialPort = [System.IO.Ports.SerialPort]::new(
 )
 $serialPort.ReadBufferSize = 1MB
 $serialPort.ReadTimeout = 100
-$capture = [System.IO.MemoryStream]::new()
+$estimatedCapacity = [Math]::Max(65536, $DurationSeconds * 8192)
+$capture = [System.IO.MemoryStream]::new($estimatedCapacity)
+$readBuffer = New-Object byte[] 4096
 
 try {
     $serialPort.Open()
@@ -77,22 +79,36 @@ try {
 
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     while ($stopwatch.Elapsed.TotalSeconds -lt $DurationSeconds) {
-        $available = $serialPort.BytesToRead
-        if ($available -gt 0) {
-            $buffer = New-Object byte[] $available
-            $read = $serialPort.Read($buffer, 0, $available)
-            $capture.Write($buffer, 0, $read)
-        }
+        do {
+            $available = $serialPort.BytesToRead
+            if ($available -le 0) {
+                break
+            }
+
+            $count = [Math]::Min($available, $readBuffer.Length)
+            $read = $serialPort.Read($readBuffer, 0, $count)
+            if ($read -le 0) {
+                break
+            }
+            $capture.Write($readBuffer, 0, $read)
+        } while ($serialPort.BytesToRead -gt 0)
+
         Start-Sleep -Milliseconds 2
     }
     $stopwatch.Stop()
 
-    $available = $serialPort.BytesToRead
-    if ($available -gt 0) {
-        $buffer = New-Object byte[] $available
-        $read = $serialPort.Read($buffer, 0, $available)
-        $capture.Write($buffer, 0, $read)
-    }
+    do {
+        $available = $serialPort.BytesToRead
+        if ($available -le 0) {
+            break
+        }
+
+        $count = [Math]::Min($available, $readBuffer.Length)
+        $read = $serialPort.Read($readBuffer, 0, $count)
+        if ($read -gt 0) {
+            $capture.Write($readBuffer, 0, $read)
+        }
+    } while ($read -gt 0)
 }
 finally {
     if ($serialPort.IsOpen) {

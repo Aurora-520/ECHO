@@ -51,6 +51,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     /* Module-Specific Initializations*/
     SYSCFG_DL_SYSCTL_init();
     SYSCFG_DL_TIMEBASE_init();
+    SYSCFG_DL_OLED_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
     SYSCFG_DL_DMA_init();
     SYSCFG_DL_SYSCTL_CLK_init();
@@ -63,12 +64,14 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_GPIO_reset(GPIOA);
     DL_GPIO_reset(GPIOB);
     DL_TimerG_reset(TIMEBASE_INST);
+    DL_I2C_reset(OLED_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
 
 
     DL_GPIO_enablePower(GPIOA);
     DL_GPIO_enablePower(GPIOB);
     DL_TimerG_enablePower(TIMEBASE_INST);
+    DL_I2C_enablePower(OLED_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
 
     delay_cycles(POWER_STARTUP_DELAY);
@@ -76,6 +79,16 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 
 SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 {
+	DL_GPIO_initPeripheralInputFunctionFeatures(
+		 GPIO_OLED_I2C_IOMUX_SDA, GPIO_OLED_I2C_IOMUX_SDA_FUNC,
+		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+	DL_GPIO_initPeripheralInputFunctionFeatures(
+		 GPIO_OLED_I2C_IOMUX_SCL, GPIO_OLED_I2C_IOMUX_SCL_FUNC,
+		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_enableHiZ(GPIO_OLED_I2C_IOMUX_SDA);
+    DL_GPIO_enableHiZ(GPIO_OLED_I2C_IOMUX_SCL);
 
     DL_GPIO_initPeripheralOutputFunction(
         GPIO_DEBUG_UART_IOMUX_TX, GPIO_DEBUG_UART_IOMUX_TX_FUNC);
@@ -256,6 +269,34 @@ SYSCONFIG_WEAK void SYSCFG_DL_TIMEBASE_init(void) {
 }
 
 
+static const DL_I2C_ClockConfig gOLED_I2CClockConfig = {
+    .clockSel = DL_I2C_CLOCK_BUSCLK,
+    .divideRatio = DL_I2C_CLOCK_DIVIDE_1,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_OLED_I2C_init(void) {
+
+    DL_I2C_setClockConfig(OLED_I2C_INST,
+        (DL_I2C_ClockConfig *) &gOLED_I2CClockConfig);
+    DL_I2C_setAnalogGlitchFilterPulseWidth(OLED_I2C_INST,
+        DL_I2C_ANALOG_GLITCH_FILTER_WIDTH_50NS);
+    DL_I2C_enableAnalogGlitchFilter(OLED_I2C_INST);
+
+    /* Configure Controller Mode */
+    DL_I2C_resetControllerTransfer(OLED_I2C_INST);
+    /* Set frequency to 400000 Hz*/
+    DL_I2C_setTimerPeriod(OLED_I2C_INST, 9);
+    DL_I2C_setControllerTXFIFOThreshold(OLED_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
+    DL_I2C_setControllerRXFIFOThreshold(OLED_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
+    DL_I2C_enableControllerClockStretching(OLED_I2C_INST);
+
+
+    /* Enable module */
+    DL_I2C_enableController(OLED_I2C_INST);
+
+
+}
+
 static const DL_UART_Main_ClockConfig gDEBUG_UARTClockConfig = {
     .clockSel    = DL_UART_MAIN_CLOCK_BUSCLK,
     .divideRatio = DL_UART_MAIN_CLOCK_DIVIDE_RATIO_1
@@ -277,11 +318,11 @@ SYSCONFIG_WEAK void SYSCFG_DL_DEBUG_UART_init(void)
     DL_UART_Main_init(DEBUG_UART_INST, (DL_UART_Main_Config *) &gDEBUG_UARTConfig);
     /*
      * Configure baud rate by setting oversampling and baud rate divisors.
-     *  Target baud rate: 460800
-     *  Actual baud rate: 461095.1
+     *  Target baud rate: 230400
+     *  Actual baud rate: 230547.55
      */
     DL_UART_Main_setOversampling(DEBUG_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
-    DL_UART_Main_setBaudRateDivisor(DEBUG_UART_INST, DEBUG_UART_IBRD_40_MHZ_460800_BAUD, DEBUG_UART_FBRD_40_MHZ_460800_BAUD);
+    DL_UART_Main_setBaudRateDivisor(DEBUG_UART_INST, DEBUG_UART_IBRD_40_MHZ_230400_BAUD, DEBUG_UART_FBRD_40_MHZ_230400_BAUD);
 
 
     /* Configure Interrupts */

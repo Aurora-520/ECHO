@@ -11,7 +11,9 @@
                                "includePath":  [
                                                    "${workspaceFolder}/app",
                                                    "${workspaceFolder}/app/tasks",
+                                                   "${workspaceFolder}/app/ui",
                                                    "${workspaceFolder}/bsp/include",
+                                                   "${workspaceFolder}/module/device",
                                                    "${workspaceFolder}/module/service",
                                                    "${workspaceFolder}/platform/freertos",
                                                    "${workspaceFolder}/config",

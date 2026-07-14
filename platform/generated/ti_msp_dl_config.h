@@ -93,6 +93,22 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 
 
 
+
+/* Defines for OLED_I2C */
+#define OLED_I2C_INST                                                       I2C0
+#define OLED_I2C_INST_IRQHandler                                 I2C0_IRQHandler
+#define OLED_I2C_INST_INT_IRQN                                     I2C0_INT_IRQn
+#define OLED_I2C_BUS_SPEED_HZ                                             400000
+#define GPIO_OLED_I2C_SDA_PORT                                             GPIOA
+#define GPIO_OLED_I2C_SDA_PIN                                      DL_GPIO_PIN_0
+#define GPIO_OLED_I2C_IOMUX_SDA                                   (IOMUX_PINCM1)
+#define GPIO_OLED_I2C_IOMUX_SDA_FUNC                    IOMUX_PINCM1_PF_I2C0_SDA
+#define GPIO_OLED_I2C_SCL_PORT                                             GPIOA
+#define GPIO_OLED_I2C_SCL_PIN                                      DL_GPIO_PIN_1
+#define GPIO_OLED_I2C_IOMUX_SCL                                   (IOMUX_PINCM2)
+#define GPIO_OLED_I2C_IOMUX_SCL_FUNC                    IOMUX_PINCM2_PF_I2C0_SCL
+
+
 /* Defines for DEBUG_UART */
 #define DEBUG_UART_INST                                                    UART1
 #define DEBUG_UART_INST_FREQUENCY                                       40000000
@@ -106,9 +122,9 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define GPIO_DEBUG_UART_IOMUX_TX                                 (IOMUX_PINCM19)
 #define GPIO_DEBUG_UART_IOMUX_RX_FUNC                  IOMUX_PINCM20_PF_UART1_RX
 #define GPIO_DEBUG_UART_IOMUX_TX_FUNC                  IOMUX_PINCM19_PF_UART1_TX
-#define DEBUG_UART_BAUD_RATE                                            (460800)
-#define DEBUG_UART_IBRD_40_MHZ_460800_BAUD                                   (5)
-#define DEBUG_UART_FBRD_40_MHZ_460800_BAUD                                  (27)
+#define DEBUG_UART_BAUD_RATE                                            (230400)
+#define DEBUG_UART_IBRD_40_MHZ_230400_BAUD                                  (10)
+#define DEBUG_UART_FBRD_40_MHZ_230400_BAUD                                  (54)
 
 
 
@@ -137,6 +153,7 @@ void SYSCFG_DL_SYSCTL_CLK_init(void);
 
 bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 void SYSCFG_DL_TIMEBASE_init(void);
+void SYSCFG_DL_OLED_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_DMA_init(void);
 

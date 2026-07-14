@@ -34,7 +34,8 @@ static void SerialTx_StartNextBlock(void)
 {
     uint16_t length;
 
-    if ((s_diagnostics.dma_active != 0U) || (s_head == s_tail)) {
+    if ((s_diagnostics.quiet_window_active != 0U) ||
+        (s_diagnostics.dma_active != 0U) || (s_head == s_tail)) {
         return;
     }
 
@@ -96,12 +97,60 @@ void SerialTx_Init(void)
     s_diagnostics.last_dma_start_us = 0U;
     s_diagnostics.last_dma_done_us = 0U;
     s_diagnostics.max_write_critical_us = 0U;
+    s_diagnostics.quiet_window_attempt_count = 0U;
+    s_diagnostics.quiet_window_acquired_count = 0U;
+    s_diagnostics.quiet_window_rejected_count = 0U;
+    s_diagnostics.quiet_window_release_count = 0U;
+    s_diagnostics.quiet_window_start_us = 0U;
+    s_diagnostics.max_quiet_window_us = 0U;
     s_diagnostics.ring_used_bytes = 0U;
     s_diagnostics.active_dma_length = 0U;
     s_diagnostics.dma_active = 0U;
+    s_diagnostics.quiet_window_active = 0U;
     s_diagnostics.initialized = 1U;
+    s_diagnostics.reserved = 0U;
 
     BSP_UartTxDma_Init(SerialTx_OnDmaComplete);
+}
+
+bool SerialTx_TryBeginQuietWindow(void)
+{
+    bool acquired = false;
+
+    taskENTER_CRITICAL();
+    s_diagnostics.quiet_window_attempt_count++;
+    if ((s_diagnostics.initialized != 0U) &&
+        (s_diagnostics.quiet_window_active == 0U) &&
+        (s_diagnostics.dma_active == 0U) &&
+        (s_head == s_tail) &&
+        BSP_UartTxDma_IsLineIdle()) {
+        s_diagnostics.quiet_window_active = 1U;
+        s_diagnostics.quiet_window_acquired_count++;
+        s_diagnostics.quiet_window_start_us = BSP_Time_GetUs();
+        acquired = true;
+    } else {
+        s_diagnostics.quiet_window_rejected_count++;
+    }
+    taskEXIT_CRITICAL();
+    return acquired;
+}
+
+void SerialTx_EndQuietWindow(void)
+{
+    taskENTER_CRITICAL();
+    if (s_diagnostics.quiet_window_active != 0U) {
+        uint32_t duration_us = (uint32_t) (
+            BSP_Time_GetUs() - s_diagnostics.quiet_window_start_us);
+
+        if (duration_us > s_diagnostics.max_quiet_window_us) {
+            s_diagnostics.max_quiet_window_us = duration_us;
+        }
+        s_diagnostics.quiet_window_start_us = 0U;
+        s_diagnostics.quiet_window_active = 0U;
+        s_diagnostics.quiet_window_release_count++;
+        SerialTx_StartNextBlock();
+    }
+    taskEXIT_CRITICAL();
 }
 
 void SerialTx_Service(void)

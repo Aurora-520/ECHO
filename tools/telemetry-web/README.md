@@ -8,7 +8,7 @@ Open http://localhost:8765 in Microsoft Edge or Chrome, then:
 
 1. Close UartAssist and every other COM4 user.
 2. Click Connect and select the DAPLink serial port.
-3. Keep the default 460800 baud setting.
+3. Keep the default 230400 baud setting.
 4. Enable the desired channels below the chart.
 5. Use the RAM parameter panel for temporary tuning.
 
@@ -32,16 +32,16 @@ SystemTask at the 10 ms control-cycle boundary. No Flash write occurs.
 
 Capture a bounded CSV session without opening the web page:
 
-    powershell -ExecutionPolicy Bypass -File .\tools\telemetry_capture.ps1 -Port COM4 -BaudRate 460800 -DurationSeconds 600 -CsvPath .\logs\telemetry.csv
+    powershell -ExecutionPolicy Bypass -File .\tools\telemetry_capture.ps1 -Port COM4 -BaudRate 230400 -DurationSeconds 600 -CsvPath .\logs\telemetry.csv
 
 Send one RAM parameter update. The port stays open for up to three attempts
 with the same transaction ID, so a retry cannot apply the value twice:
 
-    powershell -ExecutionPolicy Bypass -File .\tools\parameter_set.ps1 -Port COM4 -BaudRate 460800 -Parameter kp -Value 2.5
+    powershell -ExecutionPolicy Bypass -File .\tools\parameter_set.ps1 -Port COM4 -BaudRate 230400 -Parameter kp -Value 2.5
 
 Run protocol fault and recovery checks on a connected board:
 
-    powershell -ExecutionPolicy Bypass -File .\tools\protocol_stress_test.ps1 -Port COM4 -BaudRate 460800 -TimeoutMilliseconds 1000
+    powershell -ExecutionPolicy Bypass -File .\tools\protocol_stress_test.ps1 -Port COM4 -BaudRate 230400 -TimeoutMilliseconds 1000
 
 The capture tool limits an in-memory session to 900 seconds. Its gap count is
 the number of missing frames, with 32-bit sequence and timestamp wraparound.

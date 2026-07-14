@@ -455,6 +455,22 @@ void ParameterService_ProcessRx(void)
     Parameter_HandleRxOverflow();
 }
 
+void ParameterService_GetSnapshot(control_tuning_parameters_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    snapshot->kp = g_control_tuning_params.kp;
+    snapshot->ki = g_control_tuning_params.ki;
+    snapshot->kd = g_control_tuning_params.kd;
+    snapshot->target = g_control_tuning_params.target;
+    snapshot->update_sequence =
+        g_control_tuning_params.update_sequence;
+    taskEXIT_CRITICAL();
+}
+
 void ParameterService_ApplyPendingAtControlBoundary(void)
 {
     pending_parameter_t pending;

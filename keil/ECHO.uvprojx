@@ -337,7 +337,7 @@
               <MiscControls></MiscControls>
               <Define>__MSPM0G3507__</Define>
               <Undefine></Undefine>
-              <IncludePath>..\app;..\app\tasks;..\bsp\include;..\module\service;..\config;..\platform\freertos;..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
+              <IncludePath>..\app;..\app\tasks;..\app\ui;..\bsp\include;..\module\device;..\module\service;..\config;..\platform\freertos;..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -392,6 +392,26 @@
               <FilePath>..\app\tasks\app_tasks.c</FilePath>
             </File>
             <File>
+              <FileName>display_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\tasks\display_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>ui_input.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\ui\ui_input.c</FilePath>
+            </File>
+            <File>
+              <FileName>diagnostic_page.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\ui\diagnostic_page.c</FilePath>
+            </File>
+            <File>
+              <FileName>ssd1306.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\device\ssd1306.c</FilePath>
+            </File>
+            <File>
               <FileName>system_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\app\tasks\system_task.c</FilePath>
@@ -440,6 +460,11 @@
               <FileName>bsp_uart_tx_dma.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_uart_tx_dma.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_i2c.c</FilePath>
             </File>
           </Files>
         </Group>

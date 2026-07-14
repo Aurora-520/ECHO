@@ -51,7 +51,9 @@ $appTarget = $app.Project.Targets.Target
 $appTarget.TargetOption.TargetArmAds.Cads.VariousControls.IncludePath = @(
     "..\app"
     "..\app\tasks"
+    "..\app\ui"
     "..\bsp\include"
+    "..\module\device"
     "..\module\service"
     "..\config"
     "..\platform\freertos"
@@ -140,7 +142,9 @@ $cppConfiguration.cStandard = "c99"
 $cppConfiguration.includePath = @(
     '${workspaceFolder}/app'
     '${workspaceFolder}/app/tasks'
+    '${workspaceFolder}/app/ui'
     '${workspaceFolder}/bsp/include'
+    '${workspaceFolder}/module/device'
     '${workspaceFolder}/module/service'
     '${workspaceFolder}/platform/freertos'
     '${workspaceFolder}/config'

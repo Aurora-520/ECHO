@@ -9,6 +9,8 @@
 const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
 const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1  = GPIO.addInstance();
+const I2C    = scripting.addModule("/ti/driverlib/I2C", {}, false);
+const I2C1   = I2C.addInstance();
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
 const TIMER  = scripting.addModule("/ti/driverlib/TIMER", {}, false);
 const TIMER1 = TIMER.addInstance();
@@ -64,10 +66,24 @@ TIMER1.timerPeriod        = "4294.967296 s";
 TIMER1.timerStartTimer    = false;
 TIMER1.peripheral.$assign = "TIMG12";
 TIMER1.interrupts         = [];
+
+I2C1.$name                           = "OLED_I2C";
+I2C1.basicClockSourceDivider         = 1;
+I2C1.basicEnableController           = true;
+I2C1.basicControllerStandardBusSpeed = "Fast";
+I2C1.basicControllerBusSpeed         = 400000;
+I2C1.peripheral.$assign              = "I2C0";
+I2C1.peripheral.sdaPin.$assign       = "PA0";
+I2C1.peripheral.sclPin.$assign       = "PA1";
+I2C1.sdaPinConfig.$name              = "OLED_I2C_SDA_PIN";
+I2C1.sdaPinConfig.enableConfig       = true;
+I2C1.sclPinConfig.$name              = "OLED_I2C_SCL_PIN";
+I2C1.sclPinConfig.enableConfig       = true;
+
 const UART   = scripting.addModule("/ti/driverlib/UART", {}, false);
 const UART1  = UART.addInstance();
 
-const ECHO_DEBUG_UART_BAUD = 460800;
+const ECHO_DEBUG_UART_BAUD = 230400;
 
 UART1.$name = "DEBUG_UART";
 UART1.profile = "CONFIG_PROFILE_1";

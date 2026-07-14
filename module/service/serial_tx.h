@@ -21,15 +21,25 @@ typedef struct {
     uint32_t last_dma_start_us;
     uint32_t last_dma_done_us;
     uint32_t max_write_critical_us;
+    uint32_t quiet_window_attempt_count;
+    uint32_t quiet_window_acquired_count;
+    uint32_t quiet_window_rejected_count;
+    uint32_t quiet_window_release_count;
+    uint32_t quiet_window_start_us;
+    uint32_t max_quiet_window_us;
     uint16_t ring_used_bytes;
     uint16_t active_dma_length;
     uint8_t dma_active;
+    uint8_t quiet_window_active;
     uint8_t initialized;
+    uint8_t reserved;
 } serial_tx_diagnostics_t;
 
 extern volatile serial_tx_diagnostics_t g_serial_tx_diag;
 
 void SerialTx_Init(void);
+bool SerialTx_TryBeginQuietWindow(void);
+void SerialTx_EndQuietWindow(void);
 
 /*
  * Queues one complete frame without waiting. The function either accepts all

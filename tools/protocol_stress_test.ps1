@@ -1,7 +1,7 @@
 param(
     [string]$Port = "COM4",
-    [ValidateSet(115200, 460800, 921600)]
-    [int]$BaudRate = 460800,
+    [ValidateSet(115200, 230400, 460800, 921600)]
+    [int]$BaudRate = 230400,
     [ValidateRange(100, 2000)]
     [int]$TimeoutMilliseconds = 300
 )

@@ -1,7 +1,7 @@
 param(
     [string]$Port = "COM4",
-    [ValidateSet(115200, 460800, 921600)]
-    [int]$BaudRate = 460800,
+    [ValidateSet(115200, 230400, 460800, 921600)]
+    [int]$BaudRate = 230400,
     [ValidateSet("kp", "ki", "kd", "target")]
     [string]$Parameter = "kp",
     [double]$Value = 0.0,
