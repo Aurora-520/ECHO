@@ -12,6 +12,7 @@
                                                    "${workspaceFolder}/app",
                                                    "${workspaceFolder}/app/tasks",
                                                    "${workspaceFolder}/bsp/include",
+                                                   "${workspaceFolder}/module/service",
                                                    "${workspaceFolder}/platform/freertos",
                                                    "${workspaceFolder}/config",
                                                    "${workspaceFolder}/platform/generated",

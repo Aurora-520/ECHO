@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ECHO Telemetry</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand">ECHO / TELEMETRY</div>
+    <label class="field">&#27874;&#29305;&#29575;
+      <select id="baudRate">
+        <option value="460800" selected>460800</option>
+        <option value="115200">115200</option>
+        <option value="921600">921600</option>
+      </select>
+    </label>
+    <button id="connectButton" class="primary">&#36830;&#25509;</button>
+    <button id="disconnectButton">&#26029;&#24320;</button>
+    <button id="clearButton">&#28165;&#31354;</button>
+    <button id="exportButton">&#23548;&#20986; CSV</button>
+    <span id="connectionStatus" class="status">&#26410;&#36830;&#25509;</span>
+  </header>
+
+  <main class="layout">
+    <section class="panel chart-panel">
+      <div class="panel-heading">
+        <div>
+          <h1>&#23454;&#26102;&#25511;&#21046;&#37327;</h1>
+          <p id="lastSample">&#31561;&#24453;&#25968;&#25454;</p>
+        </div>
+        <div id="stats" class="stats"></div>
+      </div>
+      <canvas id="chart" aria-label="&#23454;&#26102;&#36965;&#27979;&#26354;&#32447;"></canvas>
+      <div id="channels" class="channels"></div>
+    </section>
+
+    <aside class="side-column">
+      <section class="panel tuning-panel">
+        <div class="panel-heading compact">
+          <h2>&#20020;&#26102;&#21442;&#25968;</h2>
+          <span class="ram-badge">RAM</span>
+        </div>
+        <label class="field">&#21442;&#25968;
+          <select id="parameterName">
+            <option value="kp">Kp</option>
+            <option value="ki">Ki</option>
+            <option value="kd">Kd</option>
+            <option value="target">Target</option>
+          </select>
+        </label>
+        <label class="field">&#25968;&#20540;
+          <input id="parameterValue" type="number" step="any" value="1">
+        </label>
+        <button id="sendButton" class="primary wide">&#21457;&#36865;&#21442;&#25968;</button>
+        <p id="tuningStatus" class="hint">&#20165;&#22312;&#36830;&#25509;&#21518;&#21487;&#21457;&#36865;&#65292;&#19981;&#20889; Flash&#12290;</p>
+      </section>
+
+      <section class="panel diagnostics-panel">
+        <div class="panel-heading compact">
+          <h2>&#38142;&#36335;&#35786;&#26029;</h2>
+        </div>
+        <dl id="diagnostics">
+          <div><dt>&#23383;&#33410;</dt><dd data-stat="bytes">0</dd></div>
+          <div><dt>&#25511;&#21046;&#24103;</dt><dd data-stat="frames">0</dd></div>
+          <div><dt>ACK</dt><dd data-stat="acks">0</dd></div>
+          <div><dt>CRC &#38169;&#35823;</dt><dd data-stat="crcErrors">0</dd></div>
+          <div><dt>&#24207;&#21495;&#32570;&#21475;</dt><dd data-stat="seqGaps">0</dd></div>
+          <div><dt>&#35299;&#26512;&#28322;&#20986;</dt><dd data-stat="overflow">0</dd></div>
+        </dl>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <span>&#21327;&#35758; v1 / &#25511;&#21046;&#24103; 56 B / CRC16-CCITT</span>
+    <span id="browserStatus"></span>
+  </footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

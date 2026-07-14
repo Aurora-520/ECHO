@@ -1,0 +1,296 @@
+#include "telemetry.h"
+
+#include <stddef.h>
+#include <string.h>
+
+#include "bsp_time.h"
+#include "queue.h"
+#include "serial_tx.h"
+
+#define TELEMETRY_QUEUE_LENGTH 8U
+#define TELEMETRY_SYNC_0       0xA5U
+#define TELEMETRY_SYNC_1       0x5AU
+#define TELEMETRY_CRC_INIT     0xFFFFU
+#define TELEMETRY_CRC_POLY     0x1021U
+
+#define FRAME_OFFSET_SYNC_0      0U
+#define FRAME_OFFSET_SYNC_1      1U
+#define FRAME_OFFSET_VERSION     2U
+#define FRAME_OFFSET_TYPE        3U
+#define FRAME_OFFSET_PAYLOAD_LEN 4U
+#define FRAME_OFFSET_SEQUENCE    6U
+#define FRAME_OFFSET_TIMESTAMP   10U
+#define FRAME_OFFSET_PAYLOAD     14U
+
+typedef enum {
+    TELEMETRY_MESSAGE_CONTROL = 1U,
+    TELEMETRY_MESSAGE_PARAMETER_ACK = 2U
+} telemetry_message_kind_t;
+
+typedef struct {
+    uint8_t kind;
+    uint8_t reserved[3];
+    uint32_t sequence;
+    uint32_t timestamp_us;
+    union {
+        telemetry_control_sample_t control;
+        telemetry_parameter_ack_t parameter_ack;
+    } data;
+} telemetry_message_t;
+
+volatile telemetry_diagnostics_t g_telemetry_diag;
+
+static StaticQueue_t s_queue_control;
+static uint8_t
+    s_queue_storage[TELEMETRY_QUEUE_LENGTH * sizeof(telemetry_message_t)];
+static QueueHandle_t s_queue;
+
+static StaticTask_t s_task_control;
+static StackType_t s_task_stack[TELEMETRY_TASK_STACK_WORDS];
+static uint32_t s_outgoing_sequence;
+
+static void Telemetry_PutU16(uint8_t *destination, uint16_t value)
+{
+    destination[0] = (uint8_t) value;
+    destination[1] = (uint8_t) (value >> 8);
+}
+
+static void Telemetry_PutU32(uint8_t *destination, uint32_t value)
+{
+    destination[0] = (uint8_t) value;
+    destination[1] = (uint8_t) (value >> 8);
+    destination[2] = (uint8_t) (value >> 16);
+    destination[3] = (uint8_t) (value >> 24);
+}
+
+static void Telemetry_PutFloat(uint8_t *destination, float value)
+{
+    uint32_t bits;
+
+    memcpy(&bits, &value, sizeof(bits));
+    Telemetry_PutU32(destination, bits);
+}
+
+static uint16_t Telemetry_Crc16(
+    const uint8_t *data, uint16_t length)
+{
+    uint16_t crc = TELEMETRY_CRC_INIT;
+    uint16_t index;
+
+    for (index = 0U; index < length; index++) {
+        uint8_t bit;
+
+        crc ^= (uint16_t) data[index] << 8;
+        for (bit = 0U; bit < 8U; bit++) {
+            if ((crc & 0x8000U) != 0U) {
+                crc = (uint16_t) ((crc << 1) ^ TELEMETRY_CRC_POLY);
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+
+    return crc;
+}
+
+static uint16_t Telemetry_BeginFrame(uint8_t *frame,
+    uint8_t type, uint16_t payload_length,
+    uint32_t sequence, uint32_t timestamp_us)
+{
+    frame[FRAME_OFFSET_SYNC_0] = TELEMETRY_SYNC_0;
+    frame[FRAME_OFFSET_SYNC_1] = TELEMETRY_SYNC_1;
+    frame[FRAME_OFFSET_VERSION] = TELEMETRY_PROTOCOL_VERSION;
+    frame[FRAME_OFFSET_TYPE] = type;
+    Telemetry_PutU16(&frame[FRAME_OFFSET_PAYLOAD_LEN], payload_length);
+    Telemetry_PutU32(&frame[FRAME_OFFSET_SEQUENCE], sequence);
+    Telemetry_PutU32(&frame[FRAME_OFFSET_TIMESTAMP], timestamp_us);
+    return (uint16_t) (FRAME_OFFSET_PAYLOAD + payload_length);
+}
+
+static uint16_t Telemetry_EndFrame(uint8_t *frame,
+    uint16_t payload_length)
+{
+    uint16_t crc = Telemetry_Crc16(&frame[FRAME_OFFSET_VERSION],
+        (uint16_t) (12U + payload_length));
+    Telemetry_PutU16(
+        &frame[FRAME_OFFSET_PAYLOAD + payload_length], crc);
+    return (uint16_t) (16U + payload_length);
+}
+
+static uint16_t Telemetry_EncodeControl(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_control_sample_t *sample = &message->data.control;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_CONTROL_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame, TELEMETRY_FRAME_TYPE_CONTROL,
+        payload_length, message->sequence, message->timestamp_us);
+    Telemetry_PutFloat(&payload[0], sample->setpoint);
+    Telemetry_PutFloat(&payload[4], sample->measurement);
+    Telemetry_PutFloat(&payload[8], sample->control_output);
+    Telemetry_PutFloat(&payload[12], sample->auxiliary);
+    Telemetry_PutU32(&payload[16], sample->loop_count);
+    Telemetry_PutU32(&payload[20], sample->period_us);
+    Telemetry_PutU32(&payload[24], sample->execution_us);
+    Telemetry_PutU32(&payload[28], sample->jitter_us);
+    Telemetry_PutU32(&payload[32], sample->deadline_miss_count);
+    Telemetry_PutU32(&payload[36], sample->flags);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
+static uint16_t Telemetry_EncodeParameterAck(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_parameter_ack_t *ack =
+        &message->data.parameter_ack;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_PARAMETER_ACK_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_PARAMETER_ACK, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], ack->transaction_id);
+    Telemetry_PutU16(&payload[4], ack->parameter_id);
+    payload[6] = ack->status;
+    payload[7] = ack->reserved;
+    Telemetry_PutFloat(&payload[8], ack->applied_value);
+    Telemetry_PutU32(&payload[12], ack->apply_sequence);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
+static void Telemetry_Task(void *context)
+{
+    telemetry_message_t message;
+    uint8_t frame[TELEMETRY_CONTROL_FRAME_BYTES];
+    uint16_t frame_length;
+    uint16_t crc_offset;
+
+    (void) context;
+
+    for (;;) {
+        if (xQueueReceive(s_queue, &message, portMAX_DELAY) != pdPASS) {
+            continue;
+        }
+
+        g_telemetry_diag.task_run_count++;
+        message.sequence = s_outgoing_sequence;
+        s_outgoing_sequence++;
+        if (message.kind == TELEMETRY_MESSAGE_CONTROL) {
+            frame_length = Telemetry_EncodeControl(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_CONTROL;
+        } else {
+            frame_length = Telemetry_EncodeParameterAck(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_PARAMETER_ACK;
+        }
+
+        crc_offset = (uint16_t) (frame_length - 2U);
+        g_telemetry_diag.last_crc =
+            (uint16_t) frame[crc_offset] |
+            (uint16_t) ((uint16_t) frame[crc_offset + 1U] << 8);
+        g_telemetry_diag.frames_encoded_count++;
+        g_telemetry_diag.last_sequence = message.sequence;
+        g_telemetry_diag.last_timestamp_us = message.timestamp_us;
+        g_telemetry_diag.last_frame_length = frame_length;
+
+        if (SerialTx_TryWrite(frame, frame_length)) {
+            g_telemetry_diag.frames_queued_count++;
+        } else {
+            g_telemetry_diag.transport_dropped_count++;
+        }
+    }
+}
+
+TaskHandle_t Telemetry_CreateTask(UBaseType_t priority)
+{
+    if (g_telemetry_diag.initialized != 0U) {
+        return g_telemetry_diag.task_handle;
+    }
+
+    s_outgoing_sequence = 0U;
+    s_queue = xQueueCreateStatic(TELEMETRY_QUEUE_LENGTH,
+        sizeof(telemetry_message_t), s_queue_storage, &s_queue_control);
+    if (s_queue == NULL) {
+        return NULL;
+    }
+    vQueueAddToRegistry(s_queue, "TelemetryQ");
+
+    g_telemetry_diag.task_handle = xTaskCreateStatic(Telemetry_Task,
+        "Telemetry", TELEMETRY_TASK_STACK_WORDS, NULL, priority,
+        s_task_stack, &s_task_control);
+    if (g_telemetry_diag.task_handle == NULL) {
+        return NULL;
+    }
+
+    g_telemetry_diag.initialized = 1U;
+    return g_telemetry_diag.task_handle;
+}
+
+static bool Telemetry_EnqueueMessage(telemetry_message_t *message)
+{
+    UBaseType_t queue_depth;
+
+    if (s_queue == NULL) {
+        return false;
+    }
+
+    message->timestamp_us = BSP_Time_GetUs();
+
+    if (xQueueSend(s_queue, message, 0U) != pdPASS) {
+        return false;
+    }
+
+    queue_depth = uxQueueMessagesWaiting(s_queue);
+    if (queue_depth > g_telemetry_diag.queue_high_water) {
+        g_telemetry_diag.queue_high_water = queue_depth;
+    }
+    return true;
+}
+
+bool Telemetry_PublishControl(
+    const telemetry_control_sample_t *sample)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.publish_attempt_count++;
+    if ((sample == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.publish_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_CONTROL;
+    message.data.control = *sample;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.publish_accepted_count++;
+    } else {
+        g_telemetry_diag.publish_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishParameterAck(
+    const telemetry_parameter_ack_t *ack)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.ack_attempt_count++;
+    if ((ack == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.ack_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_PARAMETER_ACK;
+    message.data.parameter_ack = *ack;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.ack_accepted_count++;
+    } else {
+        g_telemetry_diag.ack_dropped_count++;
+    }
+    return accepted;
+}

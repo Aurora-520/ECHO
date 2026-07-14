@@ -9,11 +9,13 @@
 #include "service_task.h"
 #include "system_task.h"
 #include "task.h"
+#include "telemetry.h"
 
 #define APP_SYSTEM_TASK_STACK_WORDS ((configSTACK_DEPTH_TYPE) 256U)
 #define APP_SERVICE_TASK_STACK_WORDS ((configSTACK_DEPTH_TYPE) 256U)
 #define APP_SYSTEM_TASK_PRIORITY     (tskIDLE_PRIORITY + 2U)
 #define APP_SERVICE_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
+#define APP_TELEMETRY_TASK_PRIORITY  (tskIDLE_PRIORITY + 1U)
 #define APP_HEARTBEAT_QUEUE_LENGTH   1U
 
 static StaticTask_t s_system_task_tcb;
@@ -29,6 +31,7 @@ void AppTasks_CreateAll(void)
     QueueHandle_t heartbeat_queue;
     TaskHandle_t system_task;
     TaskHandle_t service_task;
+    TaskHandle_t telemetry_task;
 
     heartbeat_queue = xQueueCreateStatic(APP_HEARTBEAT_QUEUE_LENGTH,
         sizeof(s_heartbeat_queue_storage[0]),
@@ -52,6 +55,13 @@ void AppTasks_CreateAll(void)
         RtosFault_Halt(RTOS_FAULT_SERVICE_TASK_CREATE, system_task, NULL, 0);
     }
 
-    RtosDiagnostics_SetObjects(system_task, service_task, heartbeat_queue,
-        APP_SYSTEM_TASK_STACK_WORDS, APP_SERVICE_TASK_STACK_WORDS);
+    telemetry_task = Telemetry_CreateTask(APP_TELEMETRY_TASK_PRIORITY);
+    if (telemetry_task == NULL) {
+        RtosFault_Halt(RTOS_FAULT_TELEMETRY_TASK_CREATE, system_task,
+            "Telemetry", 0);
+    }
+
+    RtosDiagnostics_SetObjects(system_task, service_task, telemetry_task,
+        heartbeat_queue, APP_SYSTEM_TASK_STACK_WORDS,
+        APP_SERVICE_TASK_STACK_WORDS, TELEMETRY_TASK_STACK_WORDS);
 }

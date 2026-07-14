@@ -337,7 +337,7 @@
               <MiscControls></MiscControls>
               <Define>__MSPM0G3507__</Define>
               <Undefine></Undefine>
-              <IncludePath>..\app;..\app\tasks;..\bsp\include;..\config;..\platform\freertos;..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
+              <IncludePath>..\app;..\app\tasks;..\bsp\include;..\module\service;..\config;..\platform\freertos;..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -401,6 +401,26 @@
               <FileType>1</FileType>
               <FilePath>..\app\tasks\service_task.c</FilePath>
             </File>
+            <File>
+              <FileName>serial_tx.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\serial_tx.c</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\telemetry.c</FilePath>
+            </File>
+            <File>
+              <FileName>serial_rx.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\serial_rx.c</FilePath>
+            </File>
+            <File>
+              <FileName>parameter_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\parameter_service.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -415,6 +435,11 @@
               <FileName>bsp_time.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_time.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_uart_tx_dma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_uart_tx_dma.c</FilePath>
             </File>
           </Files>
         </Group>

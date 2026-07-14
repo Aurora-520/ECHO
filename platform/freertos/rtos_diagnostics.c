@@ -88,24 +88,29 @@ void RtosDiagnostics_Init(uint32_t timebase_frequency_hz)
 }
 
 void RtosDiagnostics_SetObjects(TaskHandle_t system_task,
-    TaskHandle_t service_task, QueueHandle_t heartbeat_queue,
+    TaskHandle_t service_task, TaskHandle_t telemetry_task,
+    QueueHandle_t heartbeat_queue,
     configSTACK_DEPTH_TYPE system_stack_words,
-    configSTACK_DEPTH_TYPE service_stack_words)
+    configSTACK_DEPTH_TYPE service_stack_words,
+    configSTACK_DEPTH_TYPE telemetry_stack_words)
 {
     configSTACK_DEPTH_TYPE invalid =
         (configSTACK_DEPTH_TYPE) ~(configSTACK_DEPTH_TYPE) 0U;
 
     g_rtos_diag.system_task_handle = system_task;
     g_rtos_diag.service_task_handle = service_task;
+    g_rtos_diag.telemetry_task_handle = telemetry_task;
     g_rtos_diag.heartbeat_queue_handle = heartbeat_queue;
 
     g_rtos_diag.system_stack_allocated_words = system_stack_words;
     g_rtos_diag.service_stack_allocated_words = service_stack_words;
+    g_rtos_diag.telemetry_stack_allocated_words = telemetry_stack_words;
     g_rtos_diag.idle_stack_allocated_words = configIDLE_TASK_STACK_DEPTH;
     g_rtos_diag.timer_stack_allocated_words = configTIMER_TASK_STACK_DEPTH;
 
     g_rtos_diag.system_stack_min_free_words = invalid;
     g_rtos_diag.service_stack_min_free_words = invalid;
+    g_rtos_diag.telemetry_stack_min_free_words = invalid;
     g_rtos_diag.idle_stack_min_free_words = invalid;
     g_rtos_diag.timer_stack_min_free_words = invalid;
 }
@@ -268,6 +273,8 @@ void RtosDiagnostics_Refresh(void)
         uxTaskGetStackHighWaterMark2(g_rtos_diag.system_task_handle);
     g_rtos_diag.service_stack_min_free_words =
         uxTaskGetStackHighWaterMark2(g_rtos_diag.service_task_handle);
+    g_rtos_diag.telemetry_stack_min_free_words =
+        uxTaskGetStackHighWaterMark2(g_rtos_diag.telemetry_task_handle);
     g_rtos_diag.idle_stack_min_free_words =
         uxTaskGetStackHighWaterMark2(g_rtos_diag.idle_task_handle);
     g_rtos_diag.timer_stack_min_free_words =
@@ -279,6 +286,9 @@ void RtosDiagnostics_Refresh(void)
     g_rtos_diag.service_stack_max_used_words = RtosDiagnostics_StackUsed(
         g_rtos_diag.service_stack_allocated_words,
         g_rtos_diag.service_stack_min_free_words);
+    g_rtos_diag.telemetry_stack_max_used_words = RtosDiagnostics_StackUsed(
+        g_rtos_diag.telemetry_stack_allocated_words,
+        g_rtos_diag.telemetry_stack_min_free_words);
     g_rtos_diag.idle_stack_max_used_words = RtosDiagnostics_StackUsed(
         g_rtos_diag.idle_stack_allocated_words,
         g_rtos_diag.idle_stack_min_free_words);

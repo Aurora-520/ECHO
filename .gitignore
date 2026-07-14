@@ -22,6 +22,7 @@ config/local_paths.ps1
 
 # Generated diagnostics and temporary files
 platform/generated/Event.dot
+tests/artifacts/
 *.log
 *.tmp
 ~$*

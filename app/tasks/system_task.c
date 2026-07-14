@@ -7,8 +7,10 @@
 #include "bsp_time.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
+#include "parameter_service.h"
 #include "rtos_hooks.h"
 #include "task.h"
+#include "telemetry.h"
 
 #define SYSTEM_TASK_PERIOD \
     pdMS_TO_TICKS(RTOS_DIAGNOSTICS_SYSTEM_PERIOD_US / 1000U)
@@ -30,6 +32,9 @@ void SystemTask_Entry(void *context)
         uint32_t start_us;
         uint32_t finish_us;
         bool schedule_resynchronized;
+        uint32_t phase;
+        uint32_t triangle;
+        telemetry_control_sample_t sample;
 
         delayed = xTaskDelayUntil(&last_wake_time, SYSTEM_TASK_PERIOD);
         now = xTaskGetTickCount();
@@ -40,6 +45,8 @@ void SystemTask_Entry(void *context)
         }
 
         start_us = BSP_Time_GetUs();
+        ParameterService_ApplyPendingAtControlBoundary();
+
         g_rtos_diag.system_task_run_count++;
         g_rtos_diag.system_task_last_wake_tick = now;
 
@@ -56,6 +63,23 @@ void SystemTask_Entry(void *context)
             }
             g_rtos_diag.queue_send_count++;
         }
+
+        phase = g_rtos_diag.system_task_run_count % 200U;
+        triangle = (phase <= 100U) ? phase : (200U - phase);
+        sample.setpoint =
+            (float) ((int32_t) triangle - 50) / 50.0f;
+        sample.measurement = sample.setpoint * 0.82f;
+        sample.control_output =
+            sample.setpoint - sample.measurement;
+        sample.auxiliary = g_control_tuning_params.kp;
+        sample.loop_count = g_rtos_diag.system_task_run_count;
+        sample.period_us = g_rtos_diag.system_last_period_us;
+        sample.execution_us = g_rtos_diag.system_last_execution_us;
+        sample.jitter_us = g_rtos_diag.system_last_jitter_us;
+        sample.deadline_miss_count =
+            g_rtos_diag.system_deadline_miss_count;
+        sample.flags = TELEMETRY_CONTROL_FLAG_TEST_SIGNAL;
+        (void) Telemetry_PublishControl(&sample);
 
         finish_us = BSP_Time_GetUs();
         RtosDiagnostics_RecordSystemTiming(
