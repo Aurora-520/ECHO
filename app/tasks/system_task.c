@@ -1,14 +1,17 @@
 #include "system_task.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "FreeRTOS.h"
+#include "bsp_time.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
 #include "rtos_hooks.h"
 #include "task.h"
 
-#define SYSTEM_TASK_PERIOD      pdMS_TO_TICKS(10U)
+#define SYSTEM_TASK_PERIOD \
+    pdMS_TO_TICKS(RTOS_DIAGNOSTICS_SYSTEM_PERIOD_US / 1000U)
 #define SYSTEM_HEARTBEAT_PERIOD pdMS_TO_TICKS(1000U)
 
 void SystemTask_Entry(void *context)
@@ -24,21 +27,19 @@ void SystemTask_Entry(void *context)
     for (;;) {
         BaseType_t delayed;
         TickType_t now;
+        uint32_t start_us;
+        uint32_t finish_us;
+        bool schedule_resynchronized;
 
         delayed = xTaskDelayUntil(&last_wake_time, SYSTEM_TASK_PERIOD);
         now = xTaskGetTickCount();
+        schedule_resynchronized = (delayed == pdFALSE);
 
-        if (delayed == pdFALSE) {
-            TickType_t lateness = (TickType_t) (now - last_wake_time);
-
-            g_rtos_diag.system_deadline_miss_count++;
-            g_rtos_diag.system_last_lateness_ticks = lateness;
-            if (lateness > g_rtos_diag.system_max_lateness_ticks) {
-                g_rtos_diag.system_max_lateness_ticks = lateness;
-            }
+        if (schedule_resynchronized) {
             last_wake_time = now;
         }
 
+        start_us = BSP_Time_GetUs();
         g_rtos_diag.system_task_run_count++;
         g_rtos_diag.system_task_last_wake_tick = now;
 
@@ -55,5 +56,9 @@ void SystemTask_Entry(void *context)
             }
             g_rtos_diag.queue_send_count++;
         }
+
+        finish_us = BSP_Time_GetUs();
+        RtosDiagnostics_RecordSystemTiming(
+            start_us, finish_us, schedule_resynchronized);
     }
 }

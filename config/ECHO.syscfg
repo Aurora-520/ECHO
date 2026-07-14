@@ -1,6 +1,6 @@
 /**
- * ECHO phase-0 configuration.
- * FreeRTOS official blink example adapted to the Tianmengxing PB22 LED.
+ * ECHO platform configuration.
+ * 80 MHz MCLK, 1 MHz TIMG12 timebase, and Tianmengxing PB22 LED.
  */
 //@cliArgs --device "MSPM0G350X" --package "LQFP-64(PM)" --part "Default"
 //@v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)"
@@ -10,8 +10,31 @@ const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
 const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1  = GPIO.addInstance();
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+const TIMER  = scripting.addModule("/ti/driverlib/TIMER", {}, false);
+const TIMER1 = TIMER.addInstance();
 
 ProjectConfig.genDisable = true;
+
+const pllClk1Divider = system.clockTree["PLL_CLK1_DIV"];
+pllClk1Divider.divideValue = 4;
+
+const pllClk2xDivider = system.clockTree["PLL_CLK2X_DIV"];
+pllClk2xDivider.divideValue = 4;
+
+const pllPDivider = system.clockTree["PLL_PDIV"];
+pllPDivider.divideValue = 2;
+
+const ulpClkDivider = system.clockTree["UDIV"];
+ulpClkDivider.divideValue = 2;
+
+const pllQDivider = system.clockTree["PLL_QDIV"];
+pllQDivider.multiplyValue = 10;
+
+const hsclkMux = system.clockTree["HSCLKMUX"];
+hsclkMux.inputSelect = "HSCLKMUX_SYSPLL2X";
+
+const mfclkGate = system.clockTree["MFCLKGATE"];
+mfclkGate.enable = true;
 
 GPIO1.$name                          = "GPIO_LEDS";
 GPIO1.associatedPins[0].$name        = "USER_LED_1";
@@ -21,4 +44,23 @@ GPIO1.associatedPins[0].internalResistor = "PULL_DOWN";
 GPIO1.associatedPins[0].pin.$assign  = "PB22";
 
 const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
-SYSCTL.clockTreeEn = true;
+SYSCTL.MCLKSource            = "HSCLK";
+SYSCTL.SYSPLL_CLK1En         = true;
+SYSCTL.SYSPLL_CLK2XEn        = true;
+SYSCTL.SYSPLL_CLK2XDiv       = 1;
+SYSCTL.HSCLKSource           = "SYSPLLCLK2X";
+SYSCTL.validateClkStatus     = true;
+SYSCTL.SYSPLL_Qdiv           = 5;
+SYSCTL.MFCLKEn               = true;
+SYSCTL.forceDefaultClkConfig = true;
+SYSCTL.clockTreeEn           = true;
+
+TIMER1.$name              = "TIMEBASE";
+TIMER1.timerClkSrc        = "MFCLK";
+TIMER1.timerClkDiv        = 4;
+TIMER1.timerClkPrescale   = 1;
+TIMER1.timerMode          = "PERIODIC_UP";
+TIMER1.timerPeriod        = "4294.967296 s";
+TIMER1.timerStartTimer    = false;
+TIMER1.peripheral.$assign = "TIMG12";
+TIMER1.interrupts         = [];
