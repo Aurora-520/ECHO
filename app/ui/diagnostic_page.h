@@ -1,34 +1,38 @@
 #ifndef ECHO_DIAGNOSTIC_PAGE_H
 #define ECHO_DIAGNOSTIC_PAGE_H
 
-#include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
-#include "FreeRTOS.h"
+#include "parameter_service.h"
+#include "system_health.h"
 #include "ui_input.h"
 
-#define DIAGNOSTIC_PAGE_COUNT 2U
+typedef enum {
+    DIAGNOSTIC_PAGE_OVERVIEW = 0U,
+    DIAGNOSTIC_PAGE_RTOS,
+    DIAGNOSTIC_PAGE_COMM,
+    DIAGNOSTIC_PAGE_DEVICE,
+    DIAGNOSTIC_PAGE_PARAMETER,
+    DIAGNOSTIC_PAGE_COUNT
+} diagnostic_page_t;
+
+typedef enum {
+    PARAMETER_UI_BROWSE = 0U,
+    PARAMETER_UI_EDIT,
+    PARAMETER_UI_DEFAULT_CONFIRM
+} parameter_ui_mode_t;
 
 typedef struct {
-    bool oled_online;
-    uint8_t oled_address;
-    uint8_t page_index;
-    ui_key_t last_key;
+    system_health_snapshot_t health;
+    const parameter_metadata_t *parameter_metadata;
+    float parameter_value;
+    float parameter_draft_value;
     uint32_t key_event_count;
-    uint32_t period_us;
-    uint32_t execution_us;
-    uint32_t jitter_us;
-    uint32_t deadline_miss_count;
-    uint32_t fault_code;
-    float kp;
-    configSTACK_DEPTH_TYPE system_stack_free_words;
-    configSTACK_DEPTH_TYPE service_stack_free_words;
-    configSTACK_DEPTH_TYPE telemetry_stack_free_words;
-    configSTACK_DEPTH_TYPE display_stack_free_words;
-    size_t heap_free_bytes;
-    uint32_t i2c_success_count;
-    uint32_t i2c_error_count;
+    uint8_t page_index;
+    uint8_t parameter_index;
+    uint8_t parameter_mode;
+    uint8_t parameter_result;
+    ui_input_event_t last_event;
 } diagnostic_page_data_t;
 
 void DiagnosticPage_Render(const diagnostic_page_data_t *data);

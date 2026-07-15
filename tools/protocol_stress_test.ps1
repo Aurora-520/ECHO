@@ -1,5 +1,7 @@
 param(
-    [string]$Port = "COM4",
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Port,
     [ValidateSet(115200, 230400, 460800, 921600)]
     [int]$BaudRate = 230400,
     [ValidateRange(100, 2000)]
@@ -134,6 +136,28 @@ function Send-AndReadAck {
     return ,@()
 }
 
+function Read-SerialBytes {
+    param(
+        [System.IO.Ports.SerialPort]$SerialPort,
+        [int]$TimeoutMilliseconds
+    )
+
+    $bytes = New-Object System.Collections.Generic.List[byte]
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $available = $SerialPort.BytesToRead
+        if ($available -gt 0) {
+            $chunk = New-Object byte[] $available
+            $read = $SerialPort.Read($chunk, 0, $available)
+            for ($index = 0; $index -lt $read; $index++) {
+                $bytes.Add($chunk[$index])
+            }
+        }
+        Start-Sleep -Milliseconds 2
+    }
+    return ,$bytes.ToArray()
+}
+
 function Assert-Ack {
     param(
         [object[]]$Acks,
@@ -185,6 +209,18 @@ try {
     $ack = Assert-Ack -Acks $acks -ExpectedStatus 2 -ExpectedParameterId 1 -Name "Inf"
     Write-Output "Inf: status=$($ack.Status)"
 
+    $negativeKpTx = [uint32]0x71000007
+    $frame = New-ParameterFrame -TransactionId $negativeKpTx -ParameterId 1 -Value ([single]-0.1)
+    $acks = Send-AndReadAck -SerialPort $portObject -Frame $frame -TransactionId $negativeKpTx -TimeoutMilliseconds $TimeoutMilliseconds
+    $ack = Assert-Ack -Acks $acks -ExpectedStatus 2 -ExpectedParameterId 1 -Name "negative KP"
+    Write-Output "negative KP: status=$($ack.Status)"
+
+    $targetHighTx = [uint32]0x71000008
+    $frame = New-ParameterFrame -TransactionId $targetHighTx -ParameterId 4 -Value ([single]10001.0)
+    $acks = Send-AndReadAck -SerialPort $portObject -Frame $frame -TransactionId $targetHighTx -TimeoutMilliseconds $TimeoutMilliseconds
+    $ack = Assert-Ack -Acks $acks -ExpectedStatus 2 -ExpectedParameterId 4 -Name "target above maximum"
+    Write-Output "target above maximum: status=$($ack.Status)"
+
     $badCrcTx = [uint32]0x71000004
     $frame = New-ParameterFrame -TransactionId $badCrcTx -ParameterId 1 -Value ([single]2.0) -CorruptCrc
     $acks = Send-AndReadAck -SerialPort $portObject -Frame $frame -TransactionId $badCrcTx -TimeoutMilliseconds 150
@@ -201,6 +237,45 @@ try {
     $acks = Send-AndReadAck -SerialPort $portObject -Frame $recoveryFrame -TransactionId $recoveryTx -TimeoutMilliseconds $TimeoutMilliseconds
     $ack = Assert-Ack -Acks $acks -ExpectedStatus 0 -ExpectedParameterId 1 -Name "truncated frame recovery"
     Write-Output "truncated frame recovery: sequence=$($ack.ApplySequence)"
+
+    $busyTransactions = @()
+    $burst = New-Object byte[] (8 * 28)
+    for ($index = 0; $index -lt 8; $index++) {
+        $busyTx = [uint32](0x73000000 + $index)
+        $busyTransactions += $busyTx
+        $busyFrame = New-ParameterFrame -TransactionId $busyTx `
+            -ParameterId 2 -Value ([single](0.25 + (0.01 * $index)))
+        $busyFrame.CopyTo($burst, $index * $busyFrame.Length)
+    }
+    $portObject.DiscardInBuffer()
+    $portObject.Write($burst, 0, $burst.Length)
+    $busyResponse = Read-SerialBytes -SerialPort $portObject `
+        -TimeoutMilliseconds ([Math]::Max(1000, $TimeoutMilliseconds))
+    $busyApplied = 0
+    $busyRejected = 0
+    $busyUnexpected = 0
+    foreach ($busyTx in $busyTransactions) {
+        $busyAcks = Find-Acks -Data $busyResponse -TransactionId $busyTx
+        foreach ($busyAck in $busyAcks) {
+            if (($busyAck.ParameterId -ne 2) -or ($busyAck.Reserved -ne 0)) {
+                $busyUnexpected++
+            }
+            elseif ($busyAck.Status -eq 0) {
+                $busyApplied++
+            }
+            elseif ($busyAck.Status -eq 4) {
+                $busyRejected++
+            }
+            else {
+                $busyUnexpected++
+            }
+        }
+    }
+    if (($busyApplied -lt 1) -or ($busyRejected -lt 1) -or
+        ($busyUnexpected -ne 0)) {
+        throw "Busy burst did not produce valid APPLIED and BUSY responses."
+    }
+    Write-Output "busy burst: applied=$busyApplied, busy=$busyRejected"
 
     $duplicateTx = [uint32]0x71000006
     $duplicateFrame = New-ParameterFrame -TransactionId $duplicateTx -ParameterId 1 -Value ([single]2.25)
@@ -219,12 +294,21 @@ try {
         $transactionId = [uint32](0x72000000 + $index)
         $value = [single](1.0 + (0.01 * $index))
         $frame = New-ParameterFrame -TransactionId $transactionId -ParameterId 1 -Value $value
-        $acks = Send-AndReadAck -SerialPort $portObject -Frame $frame -TransactionId $transactionId -TimeoutMilliseconds $TimeoutMilliseconds
+        $acks = @()
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            $acks = Send-AndReadAck -SerialPort $portObject -Frame $frame -TransactionId $transactionId -TimeoutMilliseconds $TimeoutMilliseconds
+            if (($null -ne $acks) -and ($acks.Count -gt 0)) {
+                break
+            }
+        }
         $ack = Assert-Ack -Acks $acks -ExpectedStatus 0 -ExpectedParameterId 1 -Name "continuous tuning $index"
         if ($null -eq $firstBurstSequence) {
             $firstBurstSequence = $ack.ApplySequence
         }
         $lastBurstSequence = $ack.ApplySequence
+    }
+    if (($lastBurstSequence - $firstBurstSequence) -ne 49) {
+        throw "Continuous tuning retries applied a transaction more than once."
     }
     Write-Output "continuous tuning: 50/50 applied, sequence $firstBurstSequence..$lastBurstSequence"
 }

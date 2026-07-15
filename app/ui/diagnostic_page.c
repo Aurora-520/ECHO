@@ -2,6 +2,8 @@
 
 #include <stddef.h>
 
+#include "FreeRTOS.h"
+#include "bsp_reset.h"
 #include "ssd1306.h"
 
 #define UI_LINE_MAX_CHARS 21U
@@ -70,7 +72,6 @@ static void UiLine_AppendFixed3(ui_line_t *line, float value)
     } else if (scaled < -9999999.0f) {
         scaled = -9999999.0f;
     }
-
     milli = (scaled >= 0.0f) ?
         (int32_t) (scaled + 0.5f) : (int32_t) (scaled - 0.5f);
     if (milli < 0) {
@@ -79,7 +80,6 @@ static void UiLine_AppendFixed3(ui_line_t *line, float value)
     } else {
         magnitude = (uint32_t) milli;
     }
-
     UiLine_AppendU32(line, magnitude / 1000U);
     UiLine_AppendChar(line, '.');
     UiLine_AppendPadded3(line, magnitude % 1000U);
@@ -93,35 +93,193 @@ static void UiLine_AppendHex8(ui_line_t *line, uint8_t value)
     UiLine_AppendChar(line, hex_digits[value & 0x0FU]);
 }
 
-static uint32_t DiagnosticPage_StackValue(
-    configSTACK_DEPTH_TYPE free_words)
-{
-    if ((uint32_t) free_words > 10000UL) {
-        return 0U;
-    }
-    return (uint32_t) free_words;
-}
-
 static void DiagnosticPage_DrawLine(uint8_t row, const ui_line_t *line)
 {
     Ssd1306_DrawText(0U, row, line->text);
 }
 
-static void DiagnosticPage_RenderStatus(
-    const diagnostic_page_data_t *data)
+static void DiagnosticPage_DrawFooter(uint8_t page_index)
 {
     ui_line_t line;
-    uint32_t rate_hz = (data->period_us > 0U) ?
-        (1000000UL / data->period_us) : 0U;
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "ECHO OLED TEST");
+    UiLine_AppendText(&line, "PAGE ");
+    UiLine_AppendU32(&line, (uint32_t) page_index + 1U);
+    UiLine_AppendText(&line, "/");
+    UiLine_AppendU32(&line, DIAGNOSTIC_PAGE_COUNT);
+    DiagnosticPage_DrawLine(7U, &line);
+}
+
+static void DiagnosticPage_RenderOverview(
+    const diagnostic_page_data_t *data)
+{
+    const system_health_issue_descriptor_t *active =
+        SystemHealth_GetIssueDescriptor(
+            (system_health_issue_t) data->health.active_issue);
+    const system_health_issue_descriptor_t *first =
+        SystemHealth_GetIssueDescriptor(
+            (system_health_issue_t) data->health.first_fault_issue);
+    ui_line_t line;
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "ECHO P1F OVERVIEW");
     DiagnosticPage_DrawLine(0U, &line);
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "I2C:");
-    if (data->oled_online) {
-        UiLine_AppendHex8(&line, data->oled_address);
+    UiLine_AppendText(&line, "UP:");
+    UiLine_AppendU32(&line,
+        data->health.uptime_ticks / (uint32_t) configTICK_RATE_HZ);
+    UiLine_AppendText(&line, "s H:");
+    UiLine_AppendText(&line, SystemHealth_LevelName(
+        (system_health_level_t) data->health.level));
+    DiagnosticPage_DrawLine(1U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "ACTIVE:");
+    UiLine_AppendText(&line, active->short_name);
+    DiagnosticPage_DrawLine(2U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "FIRST:");
+    UiLine_AppendText(&line, data->health.first_fault_valid ?
+        first->short_name : "NONE");
+    DiagnosticPage_DrawLine(3U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "SNAP:");
+    UiLine_AppendU32(&line, data->health.update_sequence);
+    UiLine_AppendText(&line, " STICKY:");
+    UiLine_AppendText(&line,
+        (data->health.sticky_issue_mask != 0U) ? "Y" : "N");
+    DiagnosticPage_DrawLine(4U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "RESET:");
+    UiLine_AppendText(&line, data->health.reset_reason_valid ?
+        BSP_Reset_ReasonName(
+            (bsp_reset_reason_t) data->health.reset_reason) : "UNKNOWN");
+    DiagnosticPage_DrawLine(5U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "OUTPUT:");
+    UiLine_AppendText(&line,
+        data->health.actuator_output_permitted ? "ENABLED" : "LOCKED");
+    DiagnosticPage_DrawLine(6U, &line);
+    DiagnosticPage_DrawFooter(data->page_index);
+}
+
+static void DiagnosticPage_RenderRtos(const diagnostic_page_data_t *data)
+{
+    ui_line_t line;
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "RTOS");
+    DiagnosticPage_DrawLine(0U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "PER:");
+    UiLine_AppendU32(&line, data->health.system_period_us);
+    UiLine_AppendText(&line, " EXE:");
+    UiLine_AppendU32(&line, data->health.system_execution_us);
+    DiagnosticPage_DrawLine(1U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "JIT:");
+    UiLine_AppendU32(&line, data->health.system_jitter_us);
+    UiLine_AppendText(&line, " MISS:");
+    UiLine_AppendU32(&line, data->health.system_deadline_miss_count);
+    DiagnosticPage_DrawLine(2U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "STACK S:");
+    UiLine_AppendU32(&line, data->health.system_stack_free_words);
+    UiLine_AppendText(&line, " V:");
+    UiLine_AppendU32(&line, data->health.service_stack_free_words);
+    DiagnosticPage_DrawLine(3U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "STACK T:");
+    UiLine_AppendU32(&line, data->health.telemetry_stack_free_words);
+    UiLine_AppendText(&line, " D:");
+    UiLine_AppendU32(&line, data->health.display_stack_free_words);
+    DiagnosticPage_DrawLine(4U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "IDLE:");
+    UiLine_AppendU32(&line, data->health.idle_stack_free_words);
+    UiLine_AppendText(&line, " TMR:");
+    UiLine_AppendU32(&line, data->health.timer_stack_free_words);
+    DiagnosticPage_DrawLine(5U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "HEAP:");
+    UiLine_AppendU32(&line, data->health.heap_free_bytes);
+    UiLine_AppendText(&line, " MIN:");
+    UiLine_AppendU32(&line, data->health.heap_min_ever_free_bytes);
+    DiagnosticPage_DrawLine(6U, &line);
+    DiagnosticPage_DrawFooter(data->page_index);
+}
+
+static void DiagnosticPage_RenderComm(const diagnostic_page_data_t *data)
+{
+    ui_line_t line;
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "COMM");
+    DiagnosticPage_DrawLine(0U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "RX OVF:");
+    UiLine_AppendU32(&line, data->health.serial_rx_overflow_count);
+    DiagnosticPage_DrawLine(1U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "TX DROP:");
+    UiLine_AppendU32(&line, data->health.serial_tx_drop_count);
+    UiLine_AppendText(&line, " HW:");
+    UiLine_AppendU32(&line, data->health.serial_ring_high_water_bytes);
+    DiagnosticPage_DrawLine(2U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "TLM Q:");
+    UiLine_AppendU32(&line, data->health.telemetry_publish_drop_count);
+    UiLine_AppendText(&line, " X:");
+    UiLine_AppendU32(&line, data->health.telemetry_transport_drop_count);
+    DiagnosticPage_DrawLine(3U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "PARAM ERR:");
+    UiLine_AppendU32(&line, data->health.parameter_error_count);
+    DiagnosticPage_DrawLine(4U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "PARAM:");
+    UiLine_AppendText(&line, ParameterService_StatusName(
+        (parameter_status_t) data->health.parameter_last_status));
+    UiLine_AppendText(&line, " P:");
+    UiLine_AppendText(&line, data->health.parameter_pending ? "Y" : "N");
+    DiagnosticPage_DrawLine(5U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "HEALTH SEQ:");
+    UiLine_AppendU32(&line, data->health.update_sequence);
+    DiagnosticPage_DrawLine(6U, &line);
+    DiagnosticPage_DrawFooter(data->page_index);
+}
+
+static void DiagnosticPage_RenderDevice(
+    const diagnostic_page_data_t *data)
+{
+    ui_line_t line;
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "DEVICE");
+    DiagnosticPage_DrawLine(0U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "OLED:");
+    if (data->health.oled_online) {
+        UiLine_AppendHex8(&line, data->health.oled_address);
         UiLine_AppendText(&line, " ONLINE");
     } else {
         UiLine_AppendText(&line, "-- OFFLINE");
@@ -129,97 +287,106 @@ static void DiagnosticPage_RenderStatus(
     DiagnosticPage_DrawLine(1U, &line);
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "RATE:");
-    UiLine_AppendU32(&line, rate_hz);
-    UiLine_AppendText(&line, "HZ P:");
-    UiLine_AppendU32(&line, data->period_us);
+    UiLine_AppendText(&line, "I2C OK:");
+    UiLine_AppendU32(&line, data->health.i2c_success_count);
+    UiLine_AppendText(&line, " E:");
+    UiLine_AppendU32(&line, data->health.i2c_error_count);
     DiagnosticPage_DrawLine(2U, &line);
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "EXEC:");
-    UiLine_AppendU32(&line, data->execution_us);
-    UiLine_AppendText(&line, " JIT:");
-    UiLine_AppendU32(&line, data->jitter_us);
+    UiLine_AppendText(&line, "QUIET A:");
+    UiLine_AppendU32(&line, data->health.quiet_acquired_count);
+    UiLine_AppendText(&line, " R:");
+    UiLine_AppendU32(&line, data->health.quiet_released_count);
     DiagnosticPage_DrawLine(3U, &line);
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "MISS:");
-    UiLine_AppendU32(&line, data->deadline_miss_count);
-    UiLine_AppendText(&line, " FAULT:");
-    UiLine_AppendU32(&line, data->fault_code);
+    UiLine_AppendText(&line, "QUIET MAX:");
+    UiLine_AppendU32(&line, data->health.max_quiet_window_us);
+    UiLine_AppendText(&line, data->health.quiet_window_active ? " ACTIVE" : "");
     DiagnosticPage_DrawLine(4U, &line);
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "KP:");
-    UiLine_AppendFixed3(&line, data->kp);
+    UiLine_AppendText(&line, "STORAGE:DEFERRED");
     DiagnosticPage_DrawLine(5U, &line);
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "KEY:");
-    UiLine_AppendText(&line, UiInput_KeyName(data->last_key));
-    UiLine_AppendText(&line, " CNT:");
-    UiLine_AppendU32(&line, data->key_event_count);
+    UiLine_AppendText(&line, "ACTUATOR:LOCKED");
     DiagnosticPage_DrawLine(6U, &line);
-
-    UiLine_Clear(&line);
-    UiLine_AppendText(&line, "PAGE:");
-    UiLine_AppendU32(&line, (uint32_t) data->page_index + 1U);
-    UiLine_AppendText(&line, "/");
-    UiLine_AppendU32(&line, DIAGNOSTIC_PAGE_COUNT);
-    DiagnosticPage_DrawLine(7U, &line);
+    DiagnosticPage_DrawFooter(data->page_index);
 }
 
-static void DiagnosticPage_RenderRtos(
+static void DiagnosticPage_RenderParameter(
     const diagnostic_page_data_t *data)
 {
+    const parameter_metadata_t *metadata = data->parameter_metadata;
     ui_line_t line;
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "RTOS DIAGNOSTICS");
+    UiLine_AppendText(&line, "PARAM ");
+    UiLine_AppendU32(&line, (uint32_t) data->parameter_index + 1U);
+    UiLine_AppendText(&line, "/");
+    UiLine_AppendU32(&line, PARAMETER_COUNT);
+    UiLine_AppendText(&line, " ");
+    if (data->parameter_mode == PARAMETER_UI_EDIT) {
+        UiLine_AppendText(&line, "EDIT");
+    } else if (data->parameter_mode == PARAMETER_UI_DEFAULT_CONFIRM) {
+        UiLine_AppendText(&line, "CONFIRM");
+    } else {
+        UiLine_AppendText(&line, "BROWSE");
+    }
     DiagnosticPage_DrawLine(0U, &line);
 
-    UiLine_Clear(&line);
-    UiLine_AppendText(&line, "SYS FREE:");
-    UiLine_AppendU32(&line,
-        DiagnosticPage_StackValue(data->system_stack_free_words));
-    DiagnosticPage_DrawLine(1U, &line);
+    if (data->parameter_mode == PARAMETER_UI_DEFAULT_CONFIRM) {
+        UiLine_Clear(&line);
+        UiLine_AppendText(&line, "RESET ALL DEFAULTS");
+        DiagnosticPage_DrawLine(1U, &line);
+        UiLine_Clear(&line);
+        UiLine_AppendText(&line, "CONFIRM?");
+        DiagnosticPage_DrawLine(2U, &line);
+    } else if (metadata != NULL) {
+        UiLine_Clear(&line);
+        UiLine_AppendText(&line, metadata->name);
+        UiLine_AppendText(&line,
+            (data->parameter_mode == PARAMETER_UI_EDIT) ? ">" : "=");
+        UiLine_AppendFixed3(&line,
+            (data->parameter_mode == PARAMETER_UI_EDIT) ?
+            data->parameter_draft_value : data->parameter_value);
+        if (metadata->units[0] != '\0') {
+            UiLine_AppendText(&line, " ");
+            UiLine_AppendText(&line, metadata->units);
+        }
+        DiagnosticPage_DrawLine(1U, &line);
+
+        UiLine_Clear(&line);
+        UiLine_AppendText(&line, "MIN:");
+        UiLine_AppendFixed3(&line, metadata->minimum_value);
+        DiagnosticPage_DrawLine(2U, &line);
+
+        UiLine_Clear(&line);
+        UiLine_AppendText(&line, "MAX:");
+        UiLine_AppendFixed3(&line, metadata->maximum_value);
+        DiagnosticPage_DrawLine(3U, &line);
+
+        UiLine_Clear(&line);
+        UiLine_AppendText(&line, "STEP:");
+        UiLine_AppendFixed3(&line, metadata->step);
+        DiagnosticPage_DrawLine(4U, &line);
+    }
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "SVC FREE:");
-    UiLine_AppendU32(&line,
-        DiagnosticPage_StackValue(data->service_stack_free_words));
-    DiagnosticPage_DrawLine(2U, &line);
-
-    UiLine_Clear(&line);
-    UiLine_AppendText(&line, "TLM FREE:");
-    UiLine_AppendU32(&line,
-        DiagnosticPage_StackValue(data->telemetry_stack_free_words));
-    DiagnosticPage_DrawLine(3U, &line);
-
-    UiLine_Clear(&line);
-    UiLine_AppendText(&line, "DSP FREE:");
-    UiLine_AppendU32(&line,
-        DiagnosticPage_StackValue(data->display_stack_free_words));
-    DiagnosticPage_DrawLine(4U, &line);
-
-    UiLine_Clear(&line);
-    UiLine_AppendText(&line, "HEAP:");
-    UiLine_AppendU32(&line, (uint32_t) data->heap_free_bytes);
+    UiLine_AppendText(&line, "SEQ:");
+    UiLine_AppendU32(&line, data->health.parameter_apply_sequence);
+    UiLine_AppendText(&line, " PEND:");
+    UiLine_AppendText(&line, data->health.parameter_pending ? "Y" : "N");
     DiagnosticPage_DrawLine(5U, &line);
 
     UiLine_Clear(&line);
-    UiLine_AppendText(&line, "I2C OK:");
-    UiLine_AppendU32(&line, data->i2c_success_count);
-    UiLine_AppendText(&line, " E:");
-    UiLine_AppendU32(&line, data->i2c_error_count);
+    UiLine_AppendText(&line, "RESULT:");
+    UiLine_AppendText(&line, ParameterService_StatusName(
+        (parameter_status_t) data->parameter_result));
     DiagnosticPage_DrawLine(6U, &line);
-
-    UiLine_Clear(&line);
-    UiLine_AppendText(&line, "PAGE:");
-    UiLine_AppendU32(&line, (uint32_t) data->page_index + 1U);
-    UiLine_AppendText(&line, "/");
-    UiLine_AppendU32(&line, DIAGNOSTIC_PAGE_COUNT);
-    DiagnosticPage_DrawLine(7U, &line);
+    DiagnosticPage_DrawFooter(data->page_index);
 }
 
 void DiagnosticPage_Render(const diagnostic_page_data_t *data)
@@ -229,9 +396,24 @@ void DiagnosticPage_Render(const diagnostic_page_data_t *data)
     }
 
     Ssd1306_Clear();
-    if (data->page_index == 0U) {
-        DiagnosticPage_RenderStatus(data);
-    } else {
-        DiagnosticPage_RenderRtos(data);
+    switch ((diagnostic_page_t) data->page_index) {
+        case DIAGNOSTIC_PAGE_OVERVIEW:
+            DiagnosticPage_RenderOverview(data);
+            break;
+        case DIAGNOSTIC_PAGE_RTOS:
+            DiagnosticPage_RenderRtos(data);
+            break;
+        case DIAGNOSTIC_PAGE_COMM:
+            DiagnosticPage_RenderComm(data);
+            break;
+        case DIAGNOSTIC_PAGE_DEVICE:
+            DiagnosticPage_RenderDevice(data);
+            break;
+        case DIAGNOSTIC_PAGE_PARAMETER:
+            DiagnosticPage_RenderParameter(data);
+            break;
+        default:
+            DiagnosticPage_RenderOverview(data);
+            break;
     }
 }

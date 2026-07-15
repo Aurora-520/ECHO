@@ -24,8 +24,54 @@
 
 typedef enum {
     TELEMETRY_MESSAGE_CONTROL = 1U,
-    TELEMETRY_MESSAGE_PARAMETER_ACK = 2U
+    TELEMETRY_MESSAGE_PARAMETER_ACK = 2U,
+    TELEMETRY_MESSAGE_HEALTH = 3U
 } telemetry_message_kind_t;
+
+typedef struct {
+    uint16_t schema_version;
+    uint16_t build_phase;
+    uint32_t snapshot_sequence;
+    uint32_t uptime_ticks;
+    uint32_t active_issue_mask;
+    uint32_t sticky_issue_mask;
+    uint32_t system_period_us;
+    uint32_t system_execution_us;
+    uint32_t deadline_miss_count;
+    uint32_t telemetry_publish_drop_count;
+    uint32_t telemetry_transport_drop_count;
+    uint32_t serial_tx_drop_count;
+    uint32_t serial_rx_overflow_count;
+    uint32_t i2c_error_count;
+    uint32_t parameter_error_count;
+    uint32_t heap_min_ever_free_bytes;
+    uint32_t parameter_apply_sequence;
+    uint16_t minimum_stack_free_words;
+    uint8_t level;
+    uint8_t active_issue;
+    uint8_t first_fault_issue;
+    uint8_t first_fault_valid;
+    uint8_t oled_online;
+    uint8_t actuator_output_permitted;
+    uint8_t parameter_pending;
+    uint8_t parameter_last_status;
+    uint8_t reset_reason;
+    uint8_t reset_reason_valid;
+    uint32_t i2c_success_count;
+    uint32_t quiet_acquired_count;
+    uint32_t quiet_released_count;
+    uint32_t max_quiet_window_us;
+    uint32_t display_refresh_count;
+    uint16_t system_stack_free_words;
+    uint16_t service_stack_free_words;
+    uint16_t telemetry_stack_free_words;
+    uint16_t display_stack_free_words;
+    uint16_t idle_stack_free_words;
+    uint16_t timer_stack_free_words;
+    uint16_t serial_ring_high_water_bytes;
+    uint8_t quiet_window_active;
+    uint8_t reserved;
+} telemetry_health_sample_t;
 
 typedef struct {
     uint8_t kind;
@@ -35,6 +81,7 @@ typedef struct {
     union {
         telemetry_control_sample_t control;
         telemetry_parameter_ack_t parameter_ack;
+        telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
 
@@ -159,10 +206,67 @@ static uint16_t Telemetry_EncodeParameterAck(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeHealth(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_health_sample_t *health = &message->data.health;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_HEALTH_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame, TELEMETRY_FRAME_TYPE_HEALTH,
+        payload_length, message->sequence, message->timestamp_us);
+    Telemetry_PutU16(&payload[0], health->schema_version);
+    Telemetry_PutU16(&payload[2], health->build_phase);
+    Telemetry_PutU32(&payload[4], health->snapshot_sequence);
+    Telemetry_PutU32(&payload[8], health->uptime_ticks);
+    Telemetry_PutU32(&payload[12], health->active_issue_mask);
+    Telemetry_PutU32(&payload[16], health->sticky_issue_mask);
+    Telemetry_PutU32(&payload[20], health->system_period_us);
+    Telemetry_PutU32(&payload[24], health->system_execution_us);
+    Telemetry_PutU32(&payload[28], health->deadline_miss_count);
+    Telemetry_PutU32(&payload[32],
+        health->telemetry_publish_drop_count);
+    Telemetry_PutU32(&payload[36],
+        health->telemetry_transport_drop_count);
+    Telemetry_PutU32(&payload[40], health->serial_tx_drop_count);
+    Telemetry_PutU32(&payload[44], health->serial_rx_overflow_count);
+    Telemetry_PutU32(&payload[48], health->i2c_error_count);
+    Telemetry_PutU32(&payload[52], health->parameter_error_count);
+    Telemetry_PutU32(&payload[56], health->heap_min_ever_free_bytes);
+    Telemetry_PutU32(&payload[60], health->parameter_apply_sequence);
+    Telemetry_PutU16(&payload[64], health->minimum_stack_free_words);
+    payload[66] = health->level;
+    payload[67] = health->active_issue;
+    payload[68] = health->first_fault_issue;
+    payload[69] = health->first_fault_valid;
+    payload[70] = health->oled_online;
+    payload[71] = health->actuator_output_permitted;
+    payload[72] = health->parameter_pending;
+    payload[73] = health->parameter_last_status;
+    payload[74] = health->reset_reason;
+    payload[75] = health->reset_reason_valid;
+    Telemetry_PutU32(&payload[76], health->i2c_success_count);
+    Telemetry_PutU32(&payload[80], health->quiet_acquired_count);
+    Telemetry_PutU32(&payload[84], health->quiet_released_count);
+    Telemetry_PutU32(&payload[88], health->max_quiet_window_us);
+    Telemetry_PutU32(&payload[92], health->display_refresh_count);
+    Telemetry_PutU16(&payload[96], health->system_stack_free_words);
+    Telemetry_PutU16(&payload[98], health->service_stack_free_words);
+    Telemetry_PutU16(&payload[100], health->telemetry_stack_free_words);
+    Telemetry_PutU16(&payload[102], health->display_stack_free_words);
+    Telemetry_PutU16(&payload[104], health->idle_stack_free_words);
+    Telemetry_PutU16(&payload[106], health->timer_stack_free_words);
+    Telemetry_PutU16(&payload[108],
+        health->serial_ring_high_water_bytes);
+    payload[110] = health->quiet_window_active;
+    payload[111] = 0U;
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static void Telemetry_Task(void *context)
 {
     telemetry_message_t message;
-    uint8_t frame[TELEMETRY_CONTROL_FRAME_BYTES];
+    uint8_t frame[TELEMETRY_MAX_FRAME_BYTES];
     uint16_t frame_length;
     uint16_t crc_offset;
 
@@ -174,16 +278,21 @@ static void Telemetry_Task(void *context)
         }
 
         g_telemetry_diag.task_run_count++;
+        g_telemetry_diag.last_task_wake_tick = xTaskGetTickCount();
         message.sequence = s_outgoing_sequence;
         s_outgoing_sequence++;
         if (message.kind == TELEMETRY_MESSAGE_CONTROL) {
             frame_length = Telemetry_EncodeControl(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_CONTROL;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_PARAMETER_ACK) {
             frame_length = Telemetry_EncodeParameterAck(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_PARAMETER_ACK;
+        } else {
+            frame_length = Telemetry_EncodeHealth(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_HEALTH;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -291,6 +400,99 @@ bool Telemetry_PublishParameterAck(
         g_telemetry_diag.ack_accepted_count++;
     } else {
         g_telemetry_diag.ack_dropped_count++;
+    }
+    return accepted;
+}
+
+static uint16_t Telemetry_MinimumStackWords(
+    const system_health_snapshot_t *snapshot)
+{
+    uint16_t minimum = snapshot->system_stack_free_words;
+
+    if (snapshot->service_stack_free_words < minimum) {
+        minimum = snapshot->service_stack_free_words;
+    }
+    if (snapshot->telemetry_stack_free_words < minimum) {
+        minimum = snapshot->telemetry_stack_free_words;
+    }
+    if (snapshot->display_stack_free_words < minimum) {
+        minimum = snapshot->display_stack_free_words;
+    }
+    if (snapshot->idle_stack_free_words < minimum) {
+        minimum = snapshot->idle_stack_free_words;
+    }
+    if (snapshot->timer_stack_free_words < minimum) {
+        minimum = snapshot->timer_stack_free_words;
+    }
+    return minimum;
+}
+
+bool Telemetry_PublishHealth(const system_health_snapshot_t *snapshot)
+{
+    telemetry_message_t message;
+    telemetry_health_sample_t *health = &message.data.health;
+    bool accepted;
+
+    g_telemetry_diag.health_attempt_count++;
+    if ((snapshot == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.health_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_HEALTH;
+    health->schema_version = snapshot->version;
+    health->build_phase = snapshot->build_phase;
+    health->snapshot_sequence = snapshot->update_sequence;
+    health->uptime_ticks = snapshot->uptime_ticks;
+    health->active_issue_mask = snapshot->active_issue_mask;
+    health->sticky_issue_mask = snapshot->sticky_issue_mask;
+    health->system_period_us = snapshot->system_period_us;
+    health->system_execution_us = snapshot->system_execution_us;
+    health->deadline_miss_count = snapshot->system_deadline_miss_count;
+    health->telemetry_publish_drop_count =
+        snapshot->telemetry_publish_drop_count;
+    health->telemetry_transport_drop_count =
+        snapshot->telemetry_transport_drop_count;
+    health->serial_tx_drop_count = snapshot->serial_tx_drop_count;
+    health->serial_rx_overflow_count = snapshot->serial_rx_overflow_count;
+    health->i2c_error_count = snapshot->i2c_error_count;
+    health->parameter_error_count = snapshot->parameter_error_count;
+    health->heap_min_ever_free_bytes = snapshot->heap_min_ever_free_bytes;
+    health->parameter_apply_sequence = snapshot->parameter_apply_sequence;
+    health->minimum_stack_free_words =
+        Telemetry_MinimumStackWords(snapshot);
+    health->level = snapshot->level;
+    health->active_issue = snapshot->active_issue;
+    health->first_fault_issue = snapshot->first_fault_issue;
+    health->first_fault_valid = snapshot->first_fault_valid;
+    health->oled_online = snapshot->oled_online;
+    health->actuator_output_permitted =
+        snapshot->actuator_output_permitted;
+    health->parameter_pending = snapshot->parameter_pending;
+    health->parameter_last_status = snapshot->parameter_last_status;
+    health->reset_reason = snapshot->reset_reason;
+    health->reset_reason_valid = snapshot->reset_reason_valid;
+    health->i2c_success_count = snapshot->i2c_success_count;
+    health->quiet_acquired_count = snapshot->quiet_acquired_count;
+    health->quiet_released_count = snapshot->quiet_released_count;
+    health->max_quiet_window_us = snapshot->max_quiet_window_us;
+    health->display_refresh_count = snapshot->display_refresh_count;
+    health->system_stack_free_words = snapshot->system_stack_free_words;
+    health->service_stack_free_words = snapshot->service_stack_free_words;
+    health->telemetry_stack_free_words = snapshot->telemetry_stack_free_words;
+    health->display_stack_free_words = snapshot->display_stack_free_words;
+    health->idle_stack_free_words = snapshot->idle_stack_free_words;
+    health->timer_stack_free_words = snapshot->timer_stack_free_words;
+    health->serial_ring_high_water_bytes =
+        snapshot->serial_ring_high_water_bytes;
+    health->quiet_window_active = snapshot->quiet_window_active;
+    health->reserved = 0U;
+
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.health_accepted_count++;
+    } else {
+        g_telemetry_diag.health_dropped_count++;
     }
     return accepted;
 }

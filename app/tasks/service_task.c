@@ -9,16 +9,22 @@
 #include "rtos_diagnostics.h"
 #include "rtos_hooks.h"
 #include "serial_tx.h"
+#include "system_health.h"
 #include "task.h"
+#include "telemetry.h"
 
 #define SERVICE_TASK_PERIOD pdMS_TO_TICKS(2U)
 #define SERVICE_HEARTBEAT_TIMEOUT pdMS_TO_TICKS(1500U)
+#define SERVICE_HEALTH_REFRESH_PERIOD pdMS_TO_TICKS(100U)
+#define SERVICE_HEALTH_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
 
 void ServiceTask_Entry(void *context)
 {
     QueueHandle_t heartbeat_queue = (QueueHandle_t) context;
     TickType_t last_wake_time = xTaskGetTickCount();
     TickType_t last_heartbeat_time = last_wake_time;
+    TickType_t last_health_refresh_time = last_wake_time;
+    TickType_t last_health_telemetry_time = last_wake_time;
     uint32_t heartbeat_sequence = 0U;
 
     configASSERT(heartbeat_queue != NULL);
@@ -48,6 +54,21 @@ void ServiceTask_Entry(void *context)
                    SERVICE_HEARTBEAT_TIMEOUT) {
             RtosFault_Halt(RTOS_FAULT_HEARTBEAT_TIMEOUT,
                 xTaskGetCurrentTaskHandle(), "Service", 0);
+        }
+
+        if ((TickType_t) (now - last_health_refresh_time) >=
+            SERVICE_HEALTH_REFRESH_PERIOD) {
+            system_health_snapshot_t health;
+
+            last_health_refresh_time = now;
+            SystemHealth_ServiceRefresh();
+            if ((TickType_t) (now - last_health_telemetry_time) >=
+                SERVICE_HEALTH_TELEMETRY_PERIOD) {
+                last_health_telemetry_time = now;
+                if (SystemHealth_GetSnapshot(&health)) {
+                    (void) Telemetry_PublishHealth(&health);
+                }
+            }
         }
     }
 }

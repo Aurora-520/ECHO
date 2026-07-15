@@ -13,15 +13,28 @@ typedef enum {
     UI_KEY_OK = 5
 } ui_key_t;
 
-/*
- * Write 1..5 to this symbol from a debugger Watch window to simulate a key.
- * DisplayTask consumes each nonzero value once and clears it.
- */
+typedef enum {
+    UI_EVENT_NONE = 0,
+    UI_EVENT_PRESS = 1,
+    UI_EVENT_LONG_PRESS = 2,
+    UI_EVENT_REPEAT = 3,
+    UI_EVENT_TIMEOUT = 4
+} ui_event_kind_t;
+
+typedef struct {
+    ui_key_t key;
+    ui_event_kind_t kind;
+} ui_input_event_t;
+
+/* Write key 1..5 from Watch; kind 0 defaults to a single PRESS. */
 extern volatile uint32_t g_ui_debug_key_request;
+extern volatile uint32_t g_ui_debug_event_kind_request;
 
 void UiInput_Init(void);
 bool UiInput_Inject(ui_key_t key);
-ui_key_t UiInput_Poll(void);
+bool UiInput_InjectEvent(ui_key_t key, ui_event_kind_t kind);
+ui_input_event_t UiInput_PollEvent(void);
 const char *UiInput_KeyName(ui_key_t key);
+const char *UiInput_EventName(ui_event_kind_t kind);
 
 #endif

@@ -441,6 +441,11 @@
               <FileType>1</FileType>
               <FilePath>..\module\service\parameter_service.c</FilePath>
             </File>
+            <File>
+              <FileName>system_health.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\system_health.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -455,6 +460,11 @@
               <FileName>bsp_time.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_time.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_reset.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_reset.c</FilePath>
             </File>
             <File>
               <FileName>bsp_uart_tx_dma.c</FileName>
