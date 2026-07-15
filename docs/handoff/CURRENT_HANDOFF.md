@@ -15,7 +15,8 @@ status: paused
 正式 Phase 2A 工作树：C:\Users\Auror\ECHO-phase2a-work（保持 dirty，不得覆盖）
 本 spike 工作树：C:\Users\Auror\ECHO-mpu6050-spike-work
 branch：refs/heads/codex/mpu6050-hardware-spike
-HEAD：ff207b5
+checkpoint code commit：ff207b5
+push status record commit：70c1880
 upstream：origin/codex/mpu6050-hardware-spike
 push：checkpoint ff207b5 已推送
 ```

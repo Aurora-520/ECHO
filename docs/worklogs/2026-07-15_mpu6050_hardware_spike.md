@@ -126,5 +126,5 @@ C:\Users\Auror\ECHO-mpu6050-spike-data\2026-07-15_static-600s
 
 - checkpoint commit：`ff207b5`，`feat: checkpoint MPU6xxx hardware spike`；不创建阶段 tag。
 - push：`origin/codex/mpu6050-hardware-spike` 已推送；正式 main 未合入、未 push。
-- docs follow-up：本 worklog 所在后续文档提交记录 checkpoint 的真实 push 状态。
+- docs follow-up：`70c1880` 记录 checkpoint 的真实 push 状态；后续只允许修正文档准确性。
 - 正式工程 `E:\ECHO`、Phase 2A dirty 工作树、stash 和备份：未修改或删除。
