@@ -10,6 +10,7 @@
 
 用户已决定先恢复 Phase 2A 电机工作。本 spike 以独立 GitHub checkpoint 暂停，不创建阶段 tag，
 不合入正式 main；恢复时重新采集标准化数据，不直接用本次临时面包板数据冻结补偿参数。
+checkpoint `ff207b5` 已推送到 `origin/codex/mpu6050-hardware-spike`。
 
 ## 1. 接线
 

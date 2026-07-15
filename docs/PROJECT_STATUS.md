@@ -7,6 +7,7 @@
 > 禁止描述为 Phase 2B 完成。
 > 用户已暂停后续 IMU 算法、Motion、标定和 ICM42688 工作；下一活动工作树为正式 Phase 2A
 > `C:\Users\Auror\ECHO-phase2a-work`。本 spike 只保留独立 checkpoint，不合入正式 main。
+> checkpoint `ff207b5` 已推送到 `origin/codex/mpu6050-hardware-spike`，未创建阶段 tag。
 
 最后核对日期：2026-07-15（Asia/Shanghai）
 

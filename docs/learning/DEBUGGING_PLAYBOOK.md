@@ -316,7 +316,7 @@ status: bench_passed
 integration_status: pairwise_passed
 record_kind: normal
 last_verified_at: 2026-07-15T23:43:02+08:00
-firmware_commit: uncommitted checkpoint
+firmware_commit: ff207b5
 firmware_build_id: 0x02F0
 hardware_revision: two modules, WHO_AM_I 0x70 and 0x68
 owner: ServiceTask / ImuService

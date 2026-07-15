@@ -2,7 +2,7 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-15T23:57:50+08:00
+updated_at: 2026-07-16T00:07:39+08:00
 updated_by: Codex
 status: paused
 ```
@@ -15,7 +15,9 @@ status: paused
 正式 Phase 2A 工作树：C:\Users\Auror\ECHO-phase2a-work（保持 dirty，不得覆盖）
 本 spike 工作树：C:\Users\Auror\ECHO-mpu6050-spike-work
 branch：refs/heads/codex/mpu6050-hardware-spike
-HEAD：4b1a3db
+HEAD：ff207b5
+upstream：origin/codex/mpu6050-hardware-spike
+push：checkpoint ff207b5 已推送
 ```
 
 本分支仅用于备用 MPU6050 低功率硬件验证，不是正式 Phase 2B。Phase 2A 电机/编码器工作暂停但
