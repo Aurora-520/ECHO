@@ -60,6 +60,10 @@ App / Mission -> Module / Service -> BSP -> TI DriverLib / SysConfig
 - PID、滤波器和设备驱动不读取 UI 或串口命令。
 - 同一执行器只能有一个运行时写入者；任务通过命令/快照交接。
 - 诊断全局结构只供观察，不承担控制通信。
+- App/Module 不得写死物理 PA/PB 引脚、Timer、DMA 或 IOMUX；物理映射只存在于
+  SysConfig/板级资源映射/BSP。换到 MCU 支持的候选引脚时，上层接口不得修改。
+- 引脚和外设采用编译时集中选择，禁止提供比赛运行中的任意 pin mux 切换；不支持的组合必须
+  明确编译失败或保持模块 unavailable/输出锁定。
 
 ## 5. FreeRTOS 与实时性
 
@@ -70,6 +74,21 @@ App / Mission -> Module / Service -> BSP -> TI DriverLib / SysConfig
 - 周期任务使用 `vTaskDelayUntil`/`xTaskDelayUntil`，实际时序用 1 MHz 时基测量。
 - 新任务必须纳入栈高水位、运行次数、超期和故障诊断。
 - 调试断点会暂停整个 MCU，不能用单步结果评价控制周期。
+
+Phase 2B 的正式 ICM42688 和所有后续 IMU 必须遵守统一 READY 门禁，未来 AI 不得依赖用户提醒：
+
+- 保留 `PROBE -> RESET_WAIT -> SETTLING -> CALIBRATING -> READY` 或语义等价的非阻塞状态机；
+  禁止用固定 `vTaskDelay(4000)` 代替校准成功判断。
+- MPU 备用验证和正式 ICM42688 共用 `ImuService` 快照与 `ImuService_IsReady()` 契约，只替换
+  device/BSP 层驱动，不得复制一套绕过校准的控制入口。
+- IMU 未 READY 时，依赖 IMU 的航向、姿态和位置闭环不得启用，执行器仲裁必须保持对应输出
+  锁定或进入明确的非 IMU 降级模式。
+- IMU offline、stale、采样失败或重新连接后，依赖 IMU 的闭环立即退出；重新连接必须重新完成
+  稳定等待和静止校准，禁止自动恢复旧输出。
+- Health、OLED 和后续树莓派 4B 状态协议必须公开 `CALIBRATING/READY/OFFLINE/STALE`，上层只能
+  读取状态，不能通过命令强制伪造 READY。
+- Phase 2B 验收必须包含启动移动导致校准重启、READY 前输出门禁、断开/恢复、连续运行和零漂
+  统计；这些证据未通过时只能报告当前层级，不能报告 Phase 2B 完成。
 
 ## 6. 构建与硬件权限
 
@@ -128,12 +147,25 @@ tools/telemetry-web/README.md
 
 1. 更新 `docs/PROJECT_STATUS.md`。
 2. 在 `docs/worklogs` 新建一份结构化摘要。
-3. 如涉及新原理或排障方法，更新 `docs/learning`。
-4. 阶段完成时更新当前 Phase 文档和 README 索引。
+3. 每完成一个可独立验收的小模块，必须按
+   `docs/learning/MODULE_DEBUG_RECORD_TEMPLATE.md` 更新
+   `docs/learning/DEBUGGING_PLAYBOOK.md`；没有完成该记录不得报告小模块完成。
+4. 同时更新 `docs/learning/INTEGRATION_PLAYBOOK.md` 中的资源占用、引脚迁移、初始化、
+   降级行为和组合回归；没有集成合同只能报告单模块证据，不能写 `integration_ready`。
+5. 如涉及新原理或排障方法，更新 `docs/learning` 中对应条目和索引。
+6. 阶段完成时更新当前 Phase 文档和 README 索引。
 
 工作日志记录目标、开始提交/标签、修改文件、关键决定、硬件状态、测试结果、
 未解决风险、下一步和最终提交/标签。原始串口流、大型日志、临时截图和完整聊天记录
 不进入 Git；只保存摘要和必要的小型证据。
+
+“小模块”包括 BSP 外设入口、device 驱动、service、estimator/controller、任务、协议帧、
+主机工具、OLED 页面、单侧电机或编码器等可独立构建/板测的单元。模块调试记录必须区分
+代码审查、构建、烧录、板测、故障测试和连续运行；核心适用项仍为 `not run/failed` 时，
+只能报告当前证据层级，不能写 `completed`。
+
+单模块通过不等于组合通过。新增模块必须登记 Timer、DMA、IRQ、任务、内存、协议/故障 ID 和
+共享总线预算，至少完成一个共享资源邻居的两两回归，并重新执行当前阶段与上一阶段基线门禁。
 
 ## 10. 语言规范
 

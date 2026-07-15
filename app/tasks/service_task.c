@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "bsp_led.h"
+#include "imu_service.h"
 #include "parameter_service.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
@@ -37,6 +38,14 @@ void ServiceTask_Entry(void *context)
         g_rtos_diag.service_task_run_count++;
         g_rtos_diag.service_task_last_wake_tick = now;
 
+        if (ImuService_NeedsBusAccess(now)) {
+            if (SerialTx_TryBeginPriorityQuietWindow()) {
+                ImuService_Process(now);
+                SerialTx_EndQuietWindow();
+            }
+        } else {
+            ImuService_Process(now);
+        }
         ParameterService_ProcessRx();
         SerialTx_Service();
 

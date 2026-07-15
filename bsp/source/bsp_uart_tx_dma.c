@@ -31,6 +31,7 @@ void BSP_UartTxDma_Init(bsp_uart_tx_dma_callback_t complete_callback)
     s_diagnostics.dma_busy = 0U;
     s_diagnostics.line_idle = 1U;
     s_diagnostics.initialized = 1U;
+    s_diagnostics.dma_done_pending = 0U;
 
     DL_DMA_disableChannel(DMA, DEBUG_UART_TX_DMA_CHAN_ID);
     DL_UART_Main_clearInterruptStatus(DEBUG_UART_INST,
@@ -61,10 +62,12 @@ bool BSP_UartTxDma_Start(const uint8_t *data, uint16_t length)
         return false;
     }
 
-    DL_UART_Main_disableInterrupt(
-        DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
+    DL_UART_Main_disableInterrupt(DEBUG_UART_INST,
+        DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+            DL_UART_MAIN_INTERRUPT_EOT_DONE);
     DL_UART_Main_clearInterruptStatus(
-        DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
+        DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+            DL_UART_MAIN_INTERRUPT_EOT_DONE);
     if (DL_DMA_isChannelEnabled(DMA, DEBUG_UART_TX_DMA_CHAN_ID)) {
         DL_DMA_disableChannel(DMA, DEBUG_UART_TX_DMA_CHAN_ID);
         s_diagnostics.stale_channel_disable_count++;
@@ -79,12 +82,15 @@ bool BSP_UartTxDma_Start(const uint8_t *data, uint16_t length)
     s_diagnostics.active_length = length;
     s_diagnostics.dma_busy = 1U;
     s_diagnostics.line_idle = 0U;
+    s_diagnostics.dma_done_pending = 0U;
     s_diagnostics.start_count++;
     __DMB();
-    DL_UART_Main_clearInterruptStatus(
-        DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
-    DL_UART_Main_enableInterrupt(
-        DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
+    DL_UART_Main_clearInterruptStatus(DEBUG_UART_INST,
+        DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+            DL_UART_MAIN_INTERRUPT_EOT_DONE);
+    DL_UART_Main_enableInterrupt(DEBUG_UART_INST,
+        DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+            DL_UART_MAIN_INTERRUPT_EOT_DONE);
     DL_DMA_enableChannel(DMA, DEBUG_UART_TX_DMA_CHAN_ID);
     return true;
 }
@@ -98,6 +104,7 @@ void BSP_UartTxDma_Abort(void)
         DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
     s_diagnostics.active_length = 0U;
     s_diagnostics.dma_busy = 0U;
+    s_diagnostics.dma_done_pending = 0U;
     s_diagnostics.line_idle =
         DL_UART_Main_isBusy(DEBUG_UART_INST) ? 0U : 1U;
     s_diagnostics.abort_count++;
@@ -130,17 +137,22 @@ void DEBUG_UART_INST_IRQHandler(void)
             }
 
             s_diagnostics.dma_busy = 0U;
-            s_diagnostics.active_length = 0U;
+            s_diagnostics.dma_done_pending = 1U;
             s_diagnostics.dma_done_count++;
             __DMB();
-            if (s_complete_callback != NULL) {
-                s_complete_callback();
-            }
             break;
 
         case DL_UART_MAIN_IIDX_EOT_DONE:
             s_diagnostics.line_idle = 1U;
             s_diagnostics.eot_count++;
+            if (s_diagnostics.dma_done_pending != 0U) {
+                s_diagnostics.dma_done_pending = 0U;
+                s_diagnostics.active_length = 0U;
+                __DMB();
+                if (s_complete_callback != NULL) {
+                    s_complete_callback();
+                }
+            }
             break;
 
         case DL_UART_MAIN_IIDX_RX:

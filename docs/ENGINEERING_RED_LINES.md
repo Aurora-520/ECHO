@@ -149,6 +149,12 @@ RUN_A -> STOP_REQUESTED -> OUTPUT_SAFE -> RESET_CONTROLLERS -> ARM_B -> RUN_B
 
 - `platform/generated` 只能由 SysConfig 生成，禁止手改。
 - 波特率、引脚、任务周期和缓冲容量要集中配置，不在多个 `.c` 中复制魔法数字。
+- App、Mission、control、estimation、service 和 device 不得包含物理 `PAx/PBx`、pin mask、IOMUX、
+  Timer instance 或 DMA channel；这些只允许存在于 SysConfig、板级资源映射和 BSP。
+- 引脚采用编译时配置。更换到 MCU 支持的候选引脚时，只调整集中映射、重新生成并重新验收；
+  禁止通过 OLED/UART/任务在比赛运行中任意切换 pin mux。
+- 候选引脚不支持原 peripheral function 时，必须在 BSP 内更换 backend 并重新评估 IRQ/DMA/时序，
+  或明确编译失败；禁止静默退化成空实现或错误 GPIO。
 - COM 号属于本机运行参数，不写死为永久工程事实。
 - Keil、VSCode、脚本使用同一份本机路径配置；路径同步必须幂等。
 
@@ -172,3 +178,5 @@ RUN_A -> STOP_REQUESTED -> OUTPUT_SAFE -> RESET_CONTROLLERS -> ARM_B -> RUN_B
 6. 故障是否会进入已定义的安全状态？
 7. 赛题变化是否只需改 Mission、参数或模块组合？
 8. 实测结论能否由日志、快照或提交证明？
+9. 物理引脚/Timer/DMA/IRQ 是否只在集中资源层出现，换脚是否不需要修改上层？
+10. 新模块是否更新集成资源账本并完成共享邻居和上一阶段回归？

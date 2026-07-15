@@ -75,8 +75,6 @@ static void SerialTx_OnDmaComplete(void)
     s_diagnostics.active_dma_length = 0U;
     s_diagnostics.dma_active = 0U;
     s_dma_length = 0U;
-
-    SerialTx_StartNextBlock();
 }
 
 void SerialTx_Init(void)
@@ -113,7 +111,7 @@ void SerialTx_Init(void)
     BSP_UartTxDma_Init(SerialTx_OnDmaComplete);
 }
 
-bool SerialTx_TryBeginQuietWindow(void)
+static bool SerialTx_TryBeginQuietWindowInternal(bool require_empty)
 {
     bool acquired = false;
 
@@ -122,7 +120,7 @@ bool SerialTx_TryBeginQuietWindow(void)
     if ((s_diagnostics.initialized != 0U) &&
         (s_diagnostics.quiet_window_active == 0U) &&
         (s_diagnostics.dma_active == 0U) &&
-        (s_head == s_tail) &&
+        ((!require_empty) || (s_head == s_tail)) &&
         BSP_UartTxDma_IsLineIdle()) {
         s_diagnostics.quiet_window_active = 1U;
         s_diagnostics.quiet_window_acquired_count++;
@@ -133,6 +131,16 @@ bool SerialTx_TryBeginQuietWindow(void)
     }
     taskEXIT_CRITICAL();
     return acquired;
+}
+
+bool SerialTx_TryBeginQuietWindow(void)
+{
+    return SerialTx_TryBeginQuietWindowInternal(true);
+}
+
+bool SerialTx_TryBeginPriorityQuietWindow(void)
+{
+    return SerialTx_TryBeginQuietWindowInternal(false);
 }
 
 void SerialTx_EndQuietWindow(void)
@@ -148,7 +156,6 @@ void SerialTx_EndQuietWindow(void)
         s_diagnostics.quiet_window_start_us = 0U;
         s_diagnostics.quiet_window_active = 0U;
         s_diagnostics.quiet_window_release_count++;
-        SerialTx_StartNextBlock();
     }
     taskEXIT_CRITICAL();
 }
@@ -169,7 +176,6 @@ void SerialTx_Service(void)
         s_diagnostics.dma_restart_count++;
     }
 
-    SerialTx_StartNextBlock();
     taskEXIT_CRITICAL();
 }
 

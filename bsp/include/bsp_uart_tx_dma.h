@@ -22,7 +22,7 @@ typedef struct {
     uint8_t dma_busy;
     uint8_t line_idle;
     uint8_t initialized;
-    uint8_t reserved;
+    uint8_t dma_done_pending;
 } bsp_uart_tx_dma_diagnostics_t;
 
 extern volatile bsp_uart_tx_dma_diagnostics_t

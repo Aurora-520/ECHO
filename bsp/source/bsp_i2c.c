@@ -41,6 +41,13 @@ static bool BSP_I2C_FlushTxLocked(void)
     return true;
 }
 
+static void BSP_I2C_DrainRxLocked(void)
+{
+    while (!DL_I2C_isControllerRXFIFOEmpty(OLED_I2C_INST)) {
+        (void) DL_I2C_receiveControllerData(OLED_I2C_INST);
+    }
+}
+
 static void BSP_I2C_DelayUs(uint32_t delay_us)
 {
     uint32_t start_us = BSP_Time_GetUs();
@@ -261,10 +268,100 @@ static bsp_i2c_result_t BSP_I2C_WriteLocked(
     }
 }
 
+static bsp_i2c_result_t BSP_I2C_ReadLocked(
+    uint8_t address, uint8_t *read_data, uint16_t read_length)
+{
+    bsp_i2c_result_t result;
+    uint16_t received = 0U;
+    uint32_t start_us;
+
+    result = BSP_I2C_WaitReadyLocked();
+    if (result != BSP_I2C_RESULT_OK) {
+        return result;
+    }
+
+    DL_I2C_resetControllerTransfer(OLED_I2C_INST);
+    BSP_I2C_DrainRxLocked();
+    DL_I2C_startControllerTransfer(OLED_I2C_INST, address,
+        DL_I2C_CONTROLLER_DIRECTION_RX, read_length);
+    BSP_I2C_DelayUs(BSP_I2C_STATUS_POLL_DELAY_US);
+    start_us = BSP_Time_GetUs();
+
+    for (;;) {
+        uint32_t status = DL_I2C_getControllerStatus(OLED_I2C_INST);
+
+        g_bsp_i2c_diag.last_controller_status = status;
+        if ((status & DL_I2C_CONTROLLER_STATUS_ARBITRATION_LOST) != 0U) {
+            return BSP_I2C_RESULT_ARBITRATION_LOST;
+        }
+        if ((status & DL_I2C_CONTROLLER_STATUS_ERROR) != 0U) {
+            return BSP_I2C_RESULT_NACK;
+        }
+
+        while (!DL_I2C_isControllerRXFIFOEmpty(OLED_I2C_INST)) {
+            if (received >= read_length) {
+                BSP_I2C_DrainRxLocked();
+                return BSP_I2C_RESULT_FIFO_ERROR;
+            }
+            read_data[received] =
+                DL_I2C_receiveControllerData(OLED_I2C_INST);
+            received++;
+        }
+
+        if ((received == read_length) &&
+            ((status & (DL_I2C_CONTROLLER_STATUS_BUSY |
+                           DL_I2C_CONTROLLER_STATUS_BUSY_BUS)) == 0U) &&
+            ((status & DL_I2C_CONTROLLER_STATUS_IDLE) != 0U)) {
+            return BSP_I2C_RESULT_OK;
+        }
+        if (BSP_I2C_Elapsed(start_us, BSP_I2C_TRANSFER_TIMEOUT_US)) {
+            return BSP_I2C_RESULT_TRANSFER_TIMEOUT;
+        }
+    }
+}
+
+static bsp_i2c_result_t BSP_I2C_ReadAfterWriteLocked(uint8_t address,
+    const uint8_t *write_data, uint16_t write_length,
+    uint8_t *read_data, uint16_t read_length)
+{
+    bsp_i2c_result_t result =
+        BSP_I2C_WriteLocked(address, write_data, write_length);
+
+    if (result != BSP_I2C_RESULT_OK) {
+        return result;
+    }
+    return BSP_I2C_ReadLocked(address, read_data, read_length);
+}
+
+static void BSP_I2C_RecordFailure(bsp_i2c_result_t result)
+{
+    switch (result) {
+        case BSP_I2C_RESULT_NACK:
+            g_bsp_i2c_diag.nack_count++;
+            break;
+        case BSP_I2C_RESULT_ARBITRATION_LOST:
+            g_bsp_i2c_diag.arbitration_lost_count++;
+            break;
+        case BSP_I2C_RESULT_BUS_BUSY_TIMEOUT:
+            g_bsp_i2c_diag.bus_busy_timeout_count++;
+            break;
+        case BSP_I2C_RESULT_TRANSFER_TIMEOUT:
+            g_bsp_i2c_diag.transfer_timeout_count++;
+            break;
+        case BSP_I2C_RESULT_FIFO_ERROR:
+            g_bsp_i2c_diag.fifo_error_count++;
+            break;
+        default:
+            break;
+    }
+}
+
 void BSP_I2C_Init(void)
 {
     g_bsp_i2c_diag.write_attempt_count = 0U;
     g_bsp_i2c_diag.write_success_count = 0U;
+    g_bsp_i2c_diag.read_attempt_count = 0U;
+    g_bsp_i2c_diag.read_success_count = 0U;
     g_bsp_i2c_diag.nack_count = 0U;
     g_bsp_i2c_diag.arbitration_lost_count = 0U;
     g_bsp_i2c_diag.bus_busy_timeout_count = 0U;
@@ -278,6 +375,7 @@ void BSP_I2C_Init(void)
     g_bsp_i2c_diag.last_controller_status =
         DL_I2C_getControllerStatus(OLED_I2C_INST);
     g_bsp_i2c_diag.last_length = 0U;
+    g_bsp_i2c_diag.last_read_length = 0U;
     g_bsp_i2c_diag.last_address = 0U;
     g_bsp_i2c_diag.last_result = (uint32_t) BSP_I2C_RESULT_OK;
 
@@ -314,25 +412,53 @@ bsp_i2c_result_t BSP_I2C_Write(
     if (result == BSP_I2C_RESULT_OK) {
         g_bsp_i2c_diag.write_success_count++;
     } else {
-        switch (result) {
-            case BSP_I2C_RESULT_NACK:
-                g_bsp_i2c_diag.nack_count++;
-                break;
-            case BSP_I2C_RESULT_ARBITRATION_LOST:
-                g_bsp_i2c_diag.arbitration_lost_count++;
-                break;
-            case BSP_I2C_RESULT_BUS_BUSY_TIMEOUT:
-                g_bsp_i2c_diag.bus_busy_timeout_count++;
-                break;
-            case BSP_I2C_RESULT_TRANSFER_TIMEOUT:
-                g_bsp_i2c_diag.transfer_timeout_count++;
-                break;
-            case BSP_I2C_RESULT_FIFO_ERROR:
-                g_bsp_i2c_diag.fifo_error_count++;
-                break;
-            default:
-                break;
-        }
+        BSP_I2C_RecordFailure(result);
+        BSP_I2C_RecoverLocked();
+    }
+
+    g_bsp_i2c_diag.last_result = (uint32_t) result;
+    (void) xSemaphoreGive(s_i2c_mutex);
+    return result;
+}
+
+bsp_i2c_result_t BSP_I2C_WriteRead(uint8_t address,
+    const uint8_t *write_data, uint16_t write_length,
+    uint8_t *read_data, uint16_t read_length)
+{
+    bsp_i2c_result_t result;
+
+    if (g_bsp_i2c_diag.initialized == 0U) {
+        return BSP_I2C_RESULT_NOT_INITIALIZED;
+    }
+    if ((write_data == NULL) || (read_data == NULL) ||
+        (write_length == 0U) ||
+        (write_length > BSP_I2C_MAX_WRITE_BYTES) ||
+        (read_length == 0U) || (read_length > BSP_I2C_MAX_READ_BYTES) ||
+        (address > 0x7FU)) {
+        g_bsp_i2c_diag.last_result =
+            (uint32_t) BSP_I2C_RESULT_INVALID_ARGUMENT;
+        return BSP_I2C_RESULT_INVALID_ARGUMENT;
+    }
+    if (xSemaphoreTake(s_i2c_mutex, BSP_I2C_MUTEX_TIMEOUT) != pdPASS) {
+        g_bsp_i2c_diag.mutex_timeout_count++;
+        g_bsp_i2c_diag.last_result =
+            (uint32_t) BSP_I2C_RESULT_MUTEX_TIMEOUT;
+        return BSP_I2C_RESULT_MUTEX_TIMEOUT;
+    }
+
+    g_bsp_i2c_diag.write_attempt_count++;
+    g_bsp_i2c_diag.read_attempt_count++;
+    g_bsp_i2c_diag.last_address = address;
+    g_bsp_i2c_diag.last_length = write_length;
+    g_bsp_i2c_diag.last_read_length = read_length;
+    result = BSP_I2C_ReadAfterWriteLocked(address, write_data,
+        write_length, read_data, read_length);
+
+    if (result == BSP_I2C_RESULT_OK) {
+        g_bsp_i2c_diag.write_success_count++;
+        g_bsp_i2c_diag.read_success_count++;
+    } else {
+        BSP_I2C_RecordFailure(result);
         BSP_I2C_RecoverLocked();
     }
 

@@ -5,6 +5,8 @@
 
 #include "FreeRTOS.h"
 #include "bsp_time.h"
+#include "imu_service.h"
+#include "mpu6050.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
 #include "parameter_service.h"
@@ -32,8 +34,7 @@ void SystemTask_Entry(void *context)
         uint32_t start_us;
         uint32_t finish_us;
         bool schedule_resynchronized;
-        uint32_t phase;
-        uint32_t triangle;
+        imu_service_snapshot_t imu;
         telemetry_control_sample_t sample;
 
         delayed = xTaskDelayUntil(&last_wake_time, SYSTEM_TASK_PERIOD);
@@ -64,21 +65,34 @@ void SystemTask_Entry(void *context)
             g_rtos_diag.queue_send_count++;
         }
 
-        phase = g_rtos_diag.system_task_run_count % 200U;
-        triangle = (phase <= 100U) ? phase : (200U - phase);
-        sample.setpoint =
-            (float) ((int32_t) triangle - 50) / 50.0f;
-        sample.measurement = sample.setpoint * 0.82f;
-        sample.control_output =
-            sample.setpoint - sample.measurement;
-        sample.auxiliary = g_control_tuning_params.kp;
+        sample.setpoint = 0.0f;
+        sample.measurement = 0.0f;
+        sample.control_output = 0.0f;
+        sample.auxiliary = 0.0f;
+        sample.flags = TELEMETRY_CONTROL_FLAG_IMU_MPU6050;
+        if (ImuService_GetSnapshot(&imu) && (imu.valid != 0U)) {
+            sample.setpoint = imu.gyro_filtered_dps[0];
+            sample.measurement = imu.gyro_filtered_dps[1];
+            sample.control_output = imu.gyro_filtered_dps[2];
+            sample.auxiliary = imu.accel_norm_g;
+            sample.flags |= TELEMETRY_CONTROL_FLAG_IMU_VALID;
+            if (imu.state ==
+                (uint8_t) IMU_SERVICE_STATE_CALIBRATING) {
+                sample.flags |=
+                    TELEMETRY_CONTROL_FLAG_IMU_CALIBRATING;
+            }
+            if (imu.state == (uint8_t) IMU_SERVICE_STATE_READY) {
+                sample.flags |= TELEMETRY_CONTROL_FLAG_IMU_READY;
+            }
+        } else {
+            sample.auxiliary = (float) g_mpu6050_diag.who_am_i;
+        }
         sample.loop_count = g_rtos_diag.system_task_run_count;
         sample.period_us = g_rtos_diag.system_last_period_us;
         sample.execution_us = g_rtos_diag.system_last_execution_us;
         sample.jitter_us = g_rtos_diag.system_last_jitter_us;
         sample.deadline_miss_count =
             g_rtos_diag.system_deadline_miss_count;
-        sample.flags = TELEMETRY_CONTROL_FLAG_TEST_SIGNAL;
         (void) Telemetry_PublishControl(&sample);
 
         finish_us = BSP_Time_GetUs();

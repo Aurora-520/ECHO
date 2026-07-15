@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "display_task.h"
+#include "imu_service.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
 #include "rtos_hooks.h"
@@ -46,6 +47,7 @@ void AppTasks_CreateAll(void)
     }
     vQueueAddToRegistry(heartbeat_queue, "HeartbeatQ");
     DisplayTask_Init();
+    ImuService_Init();
 
     system_task = xTaskCreateStatic(SystemTask_Entry, "System",
         APP_SYSTEM_TASK_STACK_WORDS, heartbeat_queue,

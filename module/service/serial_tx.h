@@ -39,6 +39,7 @@ extern volatile serial_tx_diagnostics_t g_serial_tx_diag;
 
 void SerialTx_Init(void);
 bool SerialTx_TryBeginQuietWindow(void);
+bool SerialTx_TryBeginPriorityQuietWindow(void);
 void SerialTx_EndQuietWindow(void);
 
 /*

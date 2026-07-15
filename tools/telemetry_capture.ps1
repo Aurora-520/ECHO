@@ -12,6 +12,7 @@ param(
     [int]$DurationSeconds = 10,
     [ValidateRange(0, 10)]
     [int]$FlushSeconds = 1,
+    [string]$RawPath = "",
     [string]$CsvPath = "",
     [string]$JsonPath = ""
 )
@@ -145,6 +146,16 @@ else {
     $data = Read-SerialCapture -Name $Port -Rate $BaudRate `
         -Seconds $DurationSeconds -Flush $FlushSeconds
     $sourceName = $Port
+}
+
+if (-not [string]::IsNullOrWhiteSpace($RawPath)) {
+    $resolvedRawPath = [System.IO.Path]::GetFullPath($RawPath)
+    $rawDirectory = Split-Path -Parent $resolvedRawPath
+    if (-not [string]::IsNullOrWhiteSpace($rawDirectory)) {
+        New-Item -ItemType Directory -Path $rawDirectory -Force |
+            Out-Null
+    }
+    [System.IO.File]::WriteAllBytes($resolvedRawPath, $data)
 }
 
 $csvWriter = $null
@@ -405,6 +416,7 @@ $summary = [pscustomobject]@{
     MaximumJitterUs = $maximumJitterUs
     DeadlineMissCount = $deadlineMissCount
     LatestHealth = $latestHealth
+    RawPath = $RawPath
     CsvPath = $CsvPath
     JsonPath = $JsonPath
 }

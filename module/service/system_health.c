@@ -7,6 +7,8 @@
 #include "bsp_i2c.h"
 #include "bsp_reset.h"
 #include "bsp_time.h"
+#include "imu_service.h"
+#include "mpu6050.h"
 #include "parameter_service.h"
 #include "rtos_diagnostics.h"
 #include "serial_rx.h"
@@ -18,6 +20,7 @@
 #define SYSTEM_HEALTH_CONTROL_STALE_TICKS   pdMS_TO_TICKS(50U)
 #define SYSTEM_HEALTH_TELEMETRY_STALE_TICKS pdMS_TO_TICKS(250U)
 #define SYSTEM_HEALTH_DISPLAY_STALE_TICKS   pdMS_TO_TICKS(2500U)
+#define SYSTEM_HEALTH_IMU_STALE_TICKS       pdMS_TO_TICKS(50U)
 #define SYSTEM_HEALTH_EVENT_HOLD_TICKS      pdMS_TO_TICKS(2000U)
 #define SYSTEM_HEALTH_STACK_WARN_WORDS      64U
 #define SYSTEM_HEALTH_STACK_FAULT_WORDS     32U
@@ -43,7 +46,7 @@ static const system_health_source_descriptor_t s_source_descriptors[] = {
     { SYSTEM_HEALTH_SOURCE_DISPLAY, "DISPLAY", "DisplayTask/SSD1306" },
     { SYSTEM_HEALTH_SOURCE_I2C, "I2C", "BSP I2C" },
     { SYSTEM_HEALTH_SOURCE_STORAGE, "STORAGE", "deferred" },
-    { SYSTEM_HEALTH_SOURCE_SENSOR, "SENSOR", "future sensor service" },
+    { SYSTEM_HEALTH_SOURCE_SENSOR, "SENSOR", "ImuService/MPU6050" },
     { SYSTEM_HEALTH_SOURCE_ACTUATOR, "ACTUATOR", "future arbiter" }
 };
 
@@ -100,7 +103,13 @@ static const system_health_issue_descriptor_t s_issue_descriptors[] = {
     { SYSTEM_HEALTH_ISSUE_PARAMETER_ACK_DROP,
       SYSTEM_HEALTH_SOURCE_PARAMETERS, SYSTEM_HEALTH_DEGRADED,
       1U, "new drop", "ACK DROP",
-      "retry transaction and inspect telemetry queue", 1U }
+      "retry transaction and inspect telemetry queue", 1U },
+    { SYSTEM_HEALTH_ISSUE_IMU_OFFLINE, SYSTEM_HEALTH_SOURCE_SENSOR,
+      SYSTEM_HEALTH_DEGRADED, 1U, "probe failure", "IMU OFF",
+      "inspect MPU6050 power, address and I2C wiring", 1U },
+    { SYSTEM_HEALTH_ISSUE_IMU_STALE, SYSTEM_HEALTH_SOURCE_SENSOR,
+      SYSTEM_HEALTH_FAULT, SYSTEM_HEALTH_IMU_STALE_TICKS, "ticks",
+      "IMU STALE", "keep closed-loop output disabled", 1U }
 };
 
 volatile system_health_snapshot_t g_system_health_snapshot;
@@ -284,7 +293,8 @@ static void SystemHealth_CaptureMetrics(system_health_snapshot_t *snapshot)
         g_control_tuning_params.update_sequence;
     snapshot->parameter_last_transaction_id =
         g_parameter_service_diag.last_transaction_id;
-    snapshot->i2c_success_count = g_bsp_i2c_diag.write_success_count;
+    snapshot->i2c_success_count = g_bsp_i2c_diag.write_success_count +
+        g_bsp_i2c_diag.read_success_count;
     snapshot->i2c_error_count = SystemHealth_I2cErrorCount();
     snapshot->display_refresh_count = g_ssd1306_diag.refresh_count;
     snapshot->quiet_acquired_count =
@@ -305,6 +315,8 @@ static void SystemHealth_CaptureMetrics(system_health_snapshot_t *snapshot)
         (uint32_t) g_rtos_diag.display_task_last_wake_tick;
     snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_I2C] =
         (uint32_t) g_rtos_diag.display_task_last_wake_tick;
+    snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_SENSOR] =
+        g_imu_service_diag.last_sample_tick;
 
     snapshot->task_age_ticks[SYSTEM_HEALTH_TASK_SYSTEM] =
         SystemHealth_TaskAge(now, g_rtos_diag.system_task_last_wake_tick);
@@ -415,6 +427,20 @@ static uint32_t SystemHealth_BuildActiveMask(
         g_ssd1306_diag.online == 0U) {
         SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_OLED_OFFLINE);
     }
+    if ((g_imu_service_diag.initialized != 0U) &&
+        (g_imu_service_diag.state ==
+            (uint8_t) IMU_SERVICE_STATE_PROBE) &&
+        (g_mpu6050_diag.probe_attempt_count != 0U) &&
+        (g_imu_service_diag.online == 0U)) {
+        SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_IMU_OFFLINE);
+    }
+    if ((g_imu_service_diag.online != 0U) &&
+        (g_imu_service_diag.sample_success_count != 0U) &&
+        SystemHealth_TaskIsStale(now,
+            (TickType_t) g_imu_service_diag.last_sample_tick,
+            SYSTEM_HEALTH_IMU_STALE_TICKS)) {
+        SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_IMU_STALE);
+    }
 
     if (SystemHealth_EventIsActive(
             SYSTEM_HEALTH_ISSUE_CONTROL_DEADLINE, now)) {
@@ -493,8 +519,17 @@ static void SystemHealth_UpdateLevels(system_health_snapshot_t *snapshot)
         SYSTEM_HEALTH_OK : SYSTEM_HEALTH_UNKNOWN;
     snapshot->source_level[SYSTEM_HEALTH_SOURCE_STORAGE] =
         SYSTEM_HEALTH_UNKNOWN;
-    snapshot->source_level[SYSTEM_HEALTH_SOURCE_SENSOR] =
-        SYSTEM_HEALTH_UNKNOWN;
+    if (g_imu_service_diag.ready != 0U) {
+        snapshot->source_level[SYSTEM_HEALTH_SOURCE_SENSOR] =
+            SYSTEM_HEALTH_OK;
+    } else if ((g_imu_service_diag.online != 0U) ||
+        (g_mpu6050_diag.probe_attempt_count != 0U)) {
+        snapshot->source_level[SYSTEM_HEALTH_SOURCE_SENSOR] =
+            SYSTEM_HEALTH_DEGRADED;
+    } else {
+        snapshot->source_level[SYSTEM_HEALTH_SOURCE_SENSOR] =
+            SYSTEM_HEALTH_UNKNOWN;
+    }
     snapshot->source_level[SYSTEM_HEALTH_SOURCE_ACTUATOR] =
         SYSTEM_HEALTH_UNKNOWN;
 

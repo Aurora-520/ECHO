@@ -8,7 +8,7 @@
 - 唯一正式工程：`E:\ECHO`
 - Phase 1F 验收工作树：`C:\Users\Auror\ECHO-phase1f-work`（归档前保留）
 - 文档整理来源：`C:\Users\Auror\ECHO-docs-staging-20260715`（已逐文件语义选入）
-- 下一阶段 Phase 2A 的分支/worktree 尚未创建。
+- Phase 2A 分支/worktree 已创建：`C:\Users\Auror\ECHO-phase2a-work`，当前保持 dirty 并暂停电机台架。
 - 不新建仓库或复制工程来代替 `E:\ECHO`。
 
 ## 2. 长期阶段顺序
@@ -27,6 +27,23 @@ Phase 1F 赛场可操作性、健康诊断、参数/UI 和持久化门禁
 
 只有 Phase 1F 至 Phase 4 全部验收通过，才能报告“最终工程完成”。中间只能报告对应阶段
 或子项的真实状态。
+
+### Phase 2B 必读 IMU 门禁
+
+未来 AI 开始 Phase 2B 前必须主动落实以下要求，不等待用户再次提醒：
+
+1. 正式 ICM42688 复用统一 `ImuService` 状态机和 `ImuService_IsReady()` 接口，不复制一套
+   跳过校准的新 service。
+2. 启动必须经过探测、复位等待、稳定等待和连续静止校准；移动会重新累计，固定等待若干秒
+   不能代替 READY 判断。
+3. IMU 未 READY 时，依赖 IMU 的速度/航向/位置闭环禁止启动；编码器独立测试模式必须与
+   IMU 闭环模式明确分开。
+4. offline、stale 或连续采样失败时立即退出依赖 IMU 的闭环并锁定对应输出；重新连接后必须
+   重新稳定和校准，不能直接恢复动作。
+5. OLED、Health 遥测和后续树莓派 4B 协议必须报告 `CALIBRATING/READY/OFFLINE/STALE`，不得
+   由 UI 或上位机命令强制设置 READY。
+6. Phase 2B 验收必须保存零偏/温度、READY 时间、100 Hz 或正式冻结频率、断开恢复、连续运行、
+   deadline/drop/I2C/CRC 和输出门禁证据。
 
 ## 3. 每个阶段的固定闭环
 
@@ -144,3 +161,13 @@ Flash 注入、全片擦除或配置区修改。
 与用户沟通、工程说明、阶段报告、验收结论和 worklog 默认使用中文。代码标识符、API、
 协议字段、命令、路径和工具原始输出保留原文。没有证据的项目写“未执行”或 `deferred`，
 不得补写、猜测或借用其他阶段的数字。
+
+## 11. MPU6050 隔离硬件 Spike
+
+用户暂停 Phase 2A 电机台架后，允许从已验收 Phase 1F 基线建立
+`codex/mpu6050-hardware-spike`，只验证备用 MPU6050。该 worktree 不改变阶段顺序：
+
+- 不合入正式 main，不创建阶段 tag，不宣称 Phase 2B 开始或完成；
+- 不修改 `C:\Users\Auror\ECHO-phase2a-work` 的 dirty 电机/编码器实现；
+- 只使用 PA0/PA1 硬件 I2C，不占用 PB8/PB9 电机引脚；
+- 结果在 Phase 2A 验收后由正式 Phase 2B 语义移植，并以 ICM42688 为正式硬件重新验收。

@@ -93,7 +93,19 @@ YYYY-MM-DD_<short-topic>.md
 - `PROJECT_STATUS.md`：只保留当前权威状态，不写完整过程。
 - 当前 Phase 文档：阶段范围、设计和验收标准/结果。
 - `worklogs`：一次工作是怎样完成的、当时有什么证据和风险。
-- `learning`：把阶段中的原理和排障方法讲给用户学习。
+- `learning/DEBUGGING_PLAYBOOK.md`：按小模块保存可复用的现象、根因、排查、恢复和预防方法。
+- `learning/INTEGRATION_PLAYBOOK.md`：登记引脚迁移、共享资源、初始化、降级和组合回归。
+- `learning/MODULE_DEBUG_RECORD_TEMPLATE.md`：每个小模块完成前的强制记录模板。
 
 完成工作时先写 worklog，再把仍然有效的结论提炼到 `PROJECT_STATUS.md`；不要把整份日志复制
 进状态文件。
+
+如果本次完成了一个可独立验收的小模块，结束前还必须：
+
+1. 在调试手册索引中增加或更新唯一 module ID。
+2. 按模板记录硬件身份、接线、owner、复现、诊断、A/B、修复和恢复方法。
+3. 在集成手册登记物理映射、Timer/DMA/IRQ/任务/内存/ID、pin 迁移和共享冲突。
+4. 分别记录构建、烧录、板测、故障测试、连续运行、两两组合和基线回归的真实状态。
+5. 将 `not run`、`deferred` 和遗留风险保留在条目中。
+
+未更新调试手册和集成手册时，worklog 完成不等于小模块完成或可集成完成。

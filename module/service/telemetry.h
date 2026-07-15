@@ -22,6 +22,13 @@
 #define TELEMETRY_TASK_STACK_WORDS ((configSTACK_DEPTH_TYPE) 256U)
 
 #define TELEMETRY_CONTROL_FLAG_TEST_SIGNAL (1UL << 0)
+#define TELEMETRY_CONTROL_FLAG_IMU_MPU6050  (1UL << 1)
+#define TELEMETRY_CONTROL_FLAG_IMU_VALID    (1UL << 2)
+#define TELEMETRY_CONTROL_FLAG_IMU_CALIBRATING (1UL << 3)
+#define TELEMETRY_CONTROL_FLAG_IMU_READY    (1UL << 4)
+
+/* MPU6050 spike mapping: setpoint/measurement/control_output are filtered
+ * X/Y/Z gyro dps; auxiliary is accelerometer vector magnitude in g. */
 
 typedef struct {
     float setpoint;

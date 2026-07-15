@@ -412,6 +412,11 @@
               <FilePath>..\module\device\ssd1306.c</FilePath>
             </File>
             <File>
+              <FileName>mpu6050.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\device\mpu6050.c</FilePath>
+            </File>
+            <File>
               <FileName>system_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\app\tasks\system_task.c</FilePath>
@@ -445,6 +450,11 @@
               <FileName>system_health.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\module\service\system_health.c</FilePath>
+            </File>
+            <File>
+              <FileName>imu_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\imu_service.c</FilePath>
             </File>
           </Files>
         </Group>
