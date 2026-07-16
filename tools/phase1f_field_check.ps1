@@ -92,8 +92,38 @@ try {
         ($capture.LatestHealth.SerialRxOverflowCount -ne 0)) {
         throw "Health snapshot reports deadline, drop, or overflow errors."
     }
+    if ((-not $AllowDegraded) -and
+        ($capture.LatestHealth.I2cErrorCount -ne 0)) {
+        throw ("Health snapshot reports cumulative I2C errors: {0}." -f
+            $capture.LatestHealth.I2cErrorCount)
+    }
+    if ($capture.LatestHealth.QuietAcquiredCount -ne
+        $capture.LatestHealth.QuietReleasedCount) {
+        throw ("UART/OLED quiet windows are not paired: " +
+            "acquired={0} released={1}." -f
+            $capture.LatestHealth.QuietAcquiredCount,
+            $capture.LatestHealth.QuietReleasedCount)
+    }
+    if ($capture.LatestHealth.QuietWindowActive -ne 0) {
+        throw "UART/OLED quiet window remains active."
+    }
+    if ($capture.LatestHealth.MaxQuietWindowUs -gt 150000) {
+        throw ("UART/OLED quiet window exceeded 150000 us: {0}." -f
+            $capture.LatestHealth.MaxQuietWindowUs)
+    }
+    if ((-not $AllowDegraded) -and
+        ($capture.LatestHealth.OledOnline -ne 1)) {
+        throw "OLED is not online in the final Health snapshot."
+    }
     if ((-not $AllowDegraded) -and ($capture.LatestHealth.Level -ne 1)) {
         throw "Health level is not OK: $($capture.LatestHealth.Level)."
+    }
+    if ((-not $AllowDegraded) -and
+        (($capture.LatestHealth.ActiveIssueMask -ne "0x00000000") -or
+         ($capture.LatestHealth.StickyIssueMask -ne "0x00000000"))) {
+        throw ("Health snapshot is not clean: active={0} sticky={1}." -f
+            $capture.LatestHealth.ActiveIssueMask,
+            $capture.LatestHealth.StickyIssueMask)
     }
 
     $stage = "complete"

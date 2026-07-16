@@ -11,27 +11,31 @@ platform/freertos 是 RTOS 与编译平台适配层，向 App 提供稳定诊断
 
 | 目录 | 负责内容 | 当前状态 |
 | --- | --- | --- |
-| app/tasks | FreeRTOS 任务入口与调度胶水 | Phase 1B：SystemTask、ServiceTask |
-| app/missions | 赛题状态机和任务插件 | 预留 |
-| app/ui | OLED 页面、按键事件和参数编辑 | 预留 |
-| bsp/include | 天猛星硬件稳定接口 | Phase 1B：BSP_LED |
-| bsp/source | GPIO、定时器、UART、I2C、PWM 等适配 | Phase 1B：PB22 LED |
-| platform/freertos | 静态内存回调、故障钩子和 RTOS 诊断 | Phase 1B：已启用 |
-| platform/generated | SysConfig 生成文件 | 已启用，禁止手工修改 |
-| module/device | AT8236、X42S、ICM42688、OLED 等协议 | 预留 |
-| module/control | PID、底盘和云台控制算法 | 预留 |
-| module/estimation | 姿态、滤波和状态估计 | 预留 |
-| module/perception | 灰度与视觉结果解释 | 预留 |
-| module/service | 快照、参数、故障、日志和执行器抽象 | 预留 |
-| tests | 分阶段硬件与模块验收 | 预留 |
+| app/tasks | FreeRTOS 任务入口与调度胶水 | Phase 1F：System、Service、Telemetry、Display |
+| app/missions | 赛题状态机和任务插件 | Phase 3 前预留 |
+| app/ui | OLED 页面、按键事件和参数编辑 | Phase 1F：五页诊断 UI、虚拟输入契约 |
+| bsp/include | 天猛星硬件稳定接口 | Phase 2A：增加左轮 encoder 快照与诊断接口 |
+| bsp/source | GPIO、定时器、UART、I2C、PWM 等适配 | Phase 2A：TIMG8 左轮 QEI 已构建、未板测；PWM 未实现 |
+| platform/freertos | 静态内存回调、故障钩子和 RTOS 诊断 | Phase 1F：六任务栈、heap、时序和 fault 诊断 |
+| platform/generated | SysConfig 生成文件 | Phase 2A：增加 TIMG8/PA29/PA30 QEI；禁止手工修改 |
+| module/device | AT8236、X42S、ICM42688、OLED 等协议 | Phase 1F：SSD1306；AT8236 待 Phase 2A |
+| module/control | PID、运动学和控制器 | Phase 2A/2B 前预留，当前无真实 PID |
+| module/estimation | 姿态、滤波和状态估计 | Phase 2B 前预留 |
+| module/perception | 灰度与视觉结果解释 | Phase 2D 前预留 |
+| module/service | 通信、参数、诊断、快照和执行器仲裁 | Phase 2A：SystemHealth 增加 QEI 非法跳变故障 |
+| tests | 分阶段硬件与模块验收 | Phase 1F：采集 fixture 与 ignored 板测证据 |
 
-## Phase 1B 已建立的边界
+## Phase 1F 已建立的边界
 
-- main.c 只执行 SysConfig 初始化、统一任务创建和启动调度器。
-- App 任务使用 FreeRTOS API，但不调用 DL_GPIO。
-- BSP_LED_Toggle() 是 PB22 的唯一手写 DriverLib 调用位置。
-- Idle、Timer、System、Service 和心跳队列均由静态对象提供内存。
-- g_rtos_diag 只用于监测，不承担任务间控制数据传输。
+- main.c 只执行 reset cause 捕获、平台/服务初始化、统一任务创建和启动调度器。
+- App 任务使用 FreeRTOS 和 Module/BSP API，不直接调用 `DL_*`。
+- 手写 GPIO、Timer、UART、DMA 和 I2C DriverLib 调用只存在于 BSP。
+- Idle、Timer、System、Service、Telemetry、Display 和长期队列均使用静态内存。
+- ServiceTask 是统一健康快照的唯一运行时写入者；OLED、1 Hz Health 和 Watch 是读者。
+- SystemTask 是 applied 参数的唯一写入者；UART 与 OLED 只能提交 pending 参数事务。
+- `g_rtos_diag` 和 `g_system_health_snapshot` 只用于监测，不承担控制通信。
+- SystemTask 在 100 Hz 周期边界采样左轮 QEI；ISR 只累计非法状态跳变，不调用 RTOS。
+- 当前执行器门仍锁定，encoder-only 子阶段没有 AT8236/PWM 写入者。
 - TI 默认 AppHooks_freertos.c 和 StaticAllocs_freertos.c 已退出内核库，
   防止 hook 来源不明确。
 
@@ -40,5 +44,5 @@ platform/freertos 是 RTOS 与编译平台适配层，向 App 提供稳定诊断
 - App 不直接调用 PWM、UART、I2C 或其他 DriverLib。
 - BSP 不判断比赛模式。
 - PID、滤波器和运动学不读取按键、OLED 或 UART。
-- 只有未来的 ControlTask 可以写底盘和云台运动命令。
+- Phase 2A 必须先确定唯一执行器写入者，UI、串口和 Mission 只能提交目标请求。
 - platform/generated 只能由 SysConfig 生成。

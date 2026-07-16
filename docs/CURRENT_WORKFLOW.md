@@ -8,7 +8,9 @@
 - 唯一正式工程：`E:\ECHO`
 - Phase 1F 验收工作树：`C:\Users\Auror\ECHO-phase1f-work`（归档前保留）
 - 文档整理来源：`C:\Users\Auror\ECHO-docs-staging-20260715`（已逐文件语义选入）
-- 下一阶段 Phase 2A 的分支/worktree 尚未创建。
+- Phase 2A 分支：`phase-2a-at8236-chassis-encoder`
+- Phase 2A 工作树：`C:\Users\Auror\ECHO-phase2a-work`
+- Phase 2A 从正式 Phase 1F 基线 `4b1a3db` 创建，当前尚未接入或驱动电机。
 - 不新建仓库或复制工程来代替 `E:\ECHO`。
 
 ## 2. 长期阶段顺序
@@ -138,6 +140,14 @@ Flash 注入、全片擦除或配置区修改。
 - 不删除 stash、备份、分支、标签或 worktree。
 - 不使用 `git reset --hard` 或 `git checkout -- <file>` 破坏用户改动。
 - 正式工程的受保护用户文件必须语义保留。
+- Phase 1F 的 branch 与 annotated tag 同名。脚本和人工核对必须使用完整 ref，禁止依赖
+  会产生 ambiguous 警告的短名称：
+
+```powershell
+git rev-parse refs/heads/phase-1f-operability-diagnostics
+git rev-list -n 1 refs/tags/phase-1f-operability-diagnostics
+git rev-parse refs/heads/phase-2a-at8236-chassis-encoder
+```
 
 ## 10. 语言与报告
 

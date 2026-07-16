@@ -16,9 +16,10 @@
 开始修改前只读取完成当前任务所需的最小集合：
 
 1. `AGENTS.md`
-2. `docs/PROJECT_STATUS.md`
-3. 当前 Phase 文档，例如 `docs/phases/PHASE1F_OPERABILITY_DIAGNOSTICS.md`
-4. 当前任务相关的架构、硬件资料和源码
+2. `docs/handoff/CURRENT_HANDOFF.md`
+3. `docs/PROJECT_STATUS.md`
+4. 当前 Phase 文档，例如 `docs/phases/PHASE1F_OPERABILITY_DIAGNOSTICS.md`
+5. 当前任务相关的架构、硬件资料和源码
 
 只有追溯设计原因时才读取旧 `docs/worklogs`。不要在每个任务中加载全部历史日志、
 全部学习资料或完整聊天记录。
@@ -27,6 +28,8 @@
 
 - 执行 `git status --short --branch`，记录分支、HEAD、暂存区和用户改动。
 - 阅读 `docs/PROJECT_STATUS.md` 中的受保护路径、硬件状态和下一步。
+- 核对 `docs/handoff/CURRENT_HANDOFF.md` 的更新时间、worktree、branch、HEAD、dirty 文件、
+  硬件状态和下一条动作；若与只读 Git/进程检查冲突，以实时检查为准并先更新交接。
 - 明确本次范围、非目标和验收标准。
 - 修改已 dirty 的文件前，先读 diff 并保留用户已有语义。
 - 不把“命令进程未能启动”误判为编译或固件失败。Windows 错误
@@ -101,6 +104,9 @@ App / Mission -> Module / Service -> BSP -> TI DriverLib / SysConfig
 - 提交前执行 `git diff --cached --check`，确认暂存区不含用户文件。
 - 只有阶段验收全部通过后，才创建阶段提交和 annotated tag。
 - 正式工程导入阶段提交时优先只允许 fast-forward；结构化文件必须语义合并。
+- Phase 1F 的 branch 与 annotated tag 同名。引用它们时必须写
+  `refs/heads/phase-1f-operability-diagnostics` 或
+  `refs/tags/phase-1f-operability-diagnostics`，不得依赖有歧义的短名称。
 
 截至本规则建立时，下列 4 个文件含用户改动，禁止自动暂存、覆盖或还原：
 
@@ -140,3 +146,26 @@ tools/telemetry-web/README.md
 - 与用户沟通、阶段报告、验收结论和工程文档默认使用中文。
 - 代码标识符、API、协议字段、命令、路径以及必须保持原样的工具输出可保留英文。
 - 引用英文资料时应优先给出中文结论；不得因翻译改动原始技术含义或证据数据。
+
+## 11. 随时交接
+
+`docs/handoff/CURRENT_HANDOFF.md` 是开发中任意时刻的实时交接入口；
+`docs/PROJECT_STATUS.md` 只记录最近一次已确认的阶段基线，两者不得互相替代。
+
+以下时机必须更新 `CURRENT_HANDOFF.md`：
+
+- 开始新的子任务并明确范围后；
+- 修改文件、构建、烧录、板测或故障注入后；
+- 出现阻塞、失败、硬件状态变化或重要设计决定后；
+- 暂停工作、切换对话、交给其他人或上下文可能丢失前；
+- 暂存、提交、打标签、合入正式工程或创建下一阶段 worktree 前后。
+
+实时交接必须明确记录：更新时间、仓库/worktree、branch/HEAD/tag、当前目标和非目标、
+已完成/进行中/未开始项、dirty 与 staged 文件及原因、验证证据、硬件接线和供电、后台进程、
+阻塞项、风险、下一条精确动作和禁止操作。没有证据的状态写 `not run`、`unknown` 或
+`deferred`，不得依赖聊天记忆补全。
+
+交接文件的维护规则和模板见 `docs/handoff/README.md` 与
+`docs/handoff/HANDOFF_TEMPLATE.md`。阶段结束时把完成稿复制到 `docs/handoff/history`，
+然后为下一阶段重建 `CURRENT_HANDOFF.md`。新对话必须先读取实时交接，再执行只读核对；
+不得把交接文件本身的 dirty 状态当作可丢弃噪声。

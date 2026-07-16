@@ -4,7 +4,8 @@
 
 #include "FreeRTOS.h"
 #include "bsp_led.h"
-#include "parameter_service.h"
+#include "command_service.h"
+#include "motor_profile.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
 #include "rtos_hooks.h"
@@ -37,7 +38,7 @@ void ServiceTask_Entry(void *context)
         g_rtos_diag.service_task_run_count++;
         g_rtos_diag.service_task_last_wake_tick = now;
 
-        ParameterService_ProcessRx();
+        CommandService_ProcessRx();
         SerialTx_Service();
 
         if (xQueueReceive(
@@ -68,6 +69,8 @@ void ServiceTask_Entry(void *context)
                 if (SystemHealth_GetSnapshot(&health)) {
                     (void) Telemetry_PublishHealth(&health);
                 }
+                (void) Telemetry_PublishMotorProfile(
+                    MotorProfile_GetActive());
             }
         }
     }

@@ -5,18 +5,8 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
-#include "bsp_time.h"
-#include "serial_rx.h"
 #include "telemetry.h"
 #include "task.h"
-
-#define PARAMETER_FRAME_TYPE_SET 2U
-#define PARAMETER_SET_PAYLOAD_BYTES 12U
-#define PARAMETER_MAX_PAYLOAD_BYTES 32U
-#define PARAMETER_MAX_FRAME_BYTES (16U + PARAMETER_MAX_PAYLOAD_BYTES)
-#define PARAMETER_SYNC_0 0xA5U
-#define PARAMETER_SYNC_1 0x5AU
-#define PARAMETER_FRAME_TIMEOUT_US 50000U
 
 typedef struct {
     uint32_t transaction_id;
@@ -28,11 +18,11 @@ typedef struct {
 
 static const parameter_metadata_t s_parameter_metadata[PARAMETER_COUNT] = {
     { PARAMETER_ID_KP, "KP", PARAMETER_TYPE_FLOAT32,
-      1.0f, 0.0f, 1000.0f, 0.1f, "",
+      8.0f, 0.0f, 1000.0f, 0.1f, "",
       PARAMETER_FLAG_FIELD_EDITABLE | PARAMETER_FLAG_PERSISTENT,
       PARAMETER_SCHEMA_VERSION },
     { PARAMETER_ID_KI, "KI", PARAMETER_TYPE_FLOAT32,
-      0.0f, 0.0f, 1000.0f, 0.01f, "",
+      18.0f, 0.0f, 1000.0f, 0.1f, "",
       PARAMETER_FLAG_FIELD_EDITABLE | PARAMETER_FLAG_PERSISTENT,
       PARAMETER_SCHEMA_VERSION },
     { PARAMETER_ID_KD, "KD", PARAMETER_TYPE_FLOAT32,
@@ -40,67 +30,20 @@ static const parameter_metadata_t s_parameter_metadata[PARAMETER_COUNT] = {
       PARAMETER_FLAG_FIELD_EDITABLE | PARAMETER_FLAG_PERSISTENT,
       PARAMETER_SCHEMA_VERSION },
     { PARAMETER_ID_TARGET, "TARGET", PARAMETER_TYPE_FLOAT32,
-      0.0f, -10000.0f, 10000.0f, 1.0f, "unit",
+      0.0f, -45.0f, 45.0f, 0.5f, "rpm",
       PARAMETER_FLAG_FIELD_EDITABLE | PARAMETER_FLAG_PERSISTENT,
       PARAMETER_SCHEMA_VERSION }
 };
 
 volatile control_tuning_parameters_t g_control_tuning_params = {
-    1.0f, 0.0f, 0.0f, 0.0f, 0U
+    8.0f, 18.0f, 0.0f, 0.0f, 0U
 };
 volatile parameter_service_diagnostics_t g_parameter_service_diag;
 
-static uint8_t s_frame[PARAMETER_MAX_FRAME_BYTES];
-static uint16_t s_frame_length;
-static uint16_t s_expected_length;
 static bool s_last_transaction_valid;
 static telemetry_parameter_ack_t s_last_ack;
 static bool s_pending_valid;
 static pending_parameter_t s_pending;
-static uint32_t s_last_byte_us;
-static uint32_t s_seen_rx_overflow_count;
-
-static uint16_t Parameter_GetU16(const uint8_t *data)
-{
-    return (uint16_t) data[0] | (uint16_t) ((uint16_t) data[1] << 8);
-}
-
-static uint32_t Parameter_GetU32(const uint8_t *data)
-{
-    return (uint32_t) data[0] |
-        ((uint32_t) data[1] << 8) |
-        ((uint32_t) data[2] << 16) |
-        ((uint32_t) data[3] << 24);
-}
-
-static float Parameter_GetFloat(const uint8_t *data)
-{
-    float value;
-    memcpy(&value, data, sizeof(value));
-    return value;
-}
-
-static uint16_t Parameter_Crc16(
-    const uint8_t *data, uint16_t length)
-{
-    uint16_t crc = 0xFFFFU;
-    uint16_t index;
-
-    for (index = 0U; index < length; index++) {
-        uint8_t bit;
-
-        crc ^= (uint16_t) data[index] << 8;
-        for (bit = 0U; bit < 8U; bit++) {
-            if ((crc & 0x8000U) != 0U) {
-                crc = (uint16_t) ((crc << 1) ^ 0x1021U);
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-
-    return crc;
-}
 
 static bool Parameter_IsFinite(float value)
 {
@@ -156,45 +99,16 @@ static void Parameter_RecordResult(const telemetry_parameter_ack_t *ack,
     }
 }
 
-static void Parameter_HandleValidFrame(void)
+void ParameterService_HandleUartSet(uint32_t transaction_id,
+    uint16_t raw_parameter_id, uint8_t value_type,
+    uint8_t flags, float value)
 {
-    const uint8_t *payload = &s_frame[14];
     telemetry_parameter_ack_t ack;
     telemetry_parameter_ack_t cached_ack;
-    uint16_t payload_length = Parameter_GetU16(&s_frame[4]);
-    uint16_t received_crc = Parameter_GetU16(
-        &s_frame[14U + payload_length]);
-    uint16_t calculated_crc = Parameter_Crc16(&s_frame[2],
-        (uint16_t) (12U + payload_length));
-    uint32_t transaction_id;
-    uint16_t raw_parameter_id;
-    uint8_t value_type;
-    uint8_t flags;
-    float value;
     bool cached_duplicate = false;
     bool pending_duplicate = false;
     bool busy = false;
     parameter_status_t status;
-
-    if ((s_frame[2] != TELEMETRY_PROTOCOL_VERSION) ||
-        (s_frame[3] != PARAMETER_FRAME_TYPE_SET)) {
-        g_parameter_service_diag.bad_type_count++;
-        return;
-    }
-    if (payload_length != PARAMETER_SET_PAYLOAD_BYTES) {
-        g_parameter_service_diag.bad_length_count++;
-        return;
-    }
-    if (received_crc != calculated_crc) {
-        g_parameter_service_diag.crc_error_count++;
-        return;
-    }
-
-    transaction_id = Parameter_GetU32(&payload[0]);
-    raw_parameter_id = Parameter_GetU16(&payload[4]);
-    value_type = payload[6];
-    flags = payload[7];
-    value = Parameter_GetFloat(&payload[8]);
 
     g_parameter_service_diag.received_frame_count++;
     ack.transaction_id = transaction_id;
@@ -258,150 +172,10 @@ static void Parameter_HandleValidFrame(void)
     }
 }
 
-static void Parameter_ResetParser(void)
-{
-    s_frame_length = 0U;
-    s_expected_length = 0U;
-}
-
-static bool Parameter_HeaderIsValid(void)
-{
-    return (s_frame_length >= 6U) &&
-        (s_frame[2] == TELEMETRY_PROTOCOL_VERSION) &&
-        (s_frame[3] == PARAMETER_FRAME_TYPE_SET) &&
-        (Parameter_GetU16(&s_frame[4]) == PARAMETER_SET_PAYLOAD_BYTES);
-}
-
-static void Parameter_ResyncParser(void)
-{
-    uint16_t index;
-
-    for (index = 1U; (index + 1U) < s_frame_length; index++) {
-        uint16_t remaining;
-
-        if ((s_frame[index] != PARAMETER_SYNC_0) ||
-            (s_frame[index + 1U] != PARAMETER_SYNC_1)) {
-            continue;
-        }
-        remaining = (uint16_t) (s_frame_length - index);
-        if ((remaining >= 6U) &&
-            ((s_frame[index + 2U] != TELEMETRY_PROTOCOL_VERSION) ||
-             (s_frame[index + 3U] != PARAMETER_FRAME_TYPE_SET) ||
-             (Parameter_GetU16(&s_frame[index + 4U]) !=
-                PARAMETER_SET_PAYLOAD_BYTES))) {
-            continue;
-        }
-        memmove(s_frame, &s_frame[index], remaining);
-        s_frame_length = remaining;
-        s_expected_length = (remaining >= 6U) ?
-            (uint16_t) (16U + PARAMETER_SET_PAYLOAD_BYTES) : 0U;
-        g_parameter_service_diag.resync_count++;
-        return;
-    }
-
-    if ((s_frame_length != 0U) &&
-        (s_frame[s_frame_length - 1U] == PARAMETER_SYNC_0)) {
-        s_frame[0] = PARAMETER_SYNC_0;
-        s_frame_length = 1U;
-        s_expected_length = 0U;
-    } else {
-        Parameter_ResetParser();
-    }
-    g_parameter_service_diag.resync_count++;
-}
-
-static void Parameter_HandleRxOverflow(void)
-{
-    uint32_t overflow_count = SerialRx_GetOverflowCount();
-
-    if (overflow_count == s_seen_rx_overflow_count) {
-        return;
-    }
-    SerialRx_Flush();
-    Parameter_ResetParser();
-    s_seen_rx_overflow_count = overflow_count;
-    g_parameter_service_diag.overflow_reset_count++;
-}
-
-static void Parameter_ConsumeByte(uint8_t byte)
-{
-
-    if (s_frame_length == 0U) {
-        if (byte == PARAMETER_SYNC_0) {
-            s_frame[0] = byte;
-            s_frame_length = 1U;
-        }
-        return;
-    }
-
-    if (s_frame_length == 1U) {
-        if (byte == PARAMETER_SYNC_1) {
-            s_frame[s_frame_length++] = byte;
-        } else {
-            s_frame_length = 0U;
-            if (byte == PARAMETER_SYNC_0) {
-                s_frame[0] = byte;
-                s_frame_length = 1U;
-            }
-        }
-        return;
-    }
-
-    if (s_frame_length >= PARAMETER_MAX_FRAME_BYTES) {
-        Parameter_ResetParser();
-        return;
-    }
-
-    s_frame[s_frame_length++] = byte;
-    if (s_frame_length == 6U) {
-        if (!Parameter_HeaderIsValid()) {
-            if ((s_frame[2] != TELEMETRY_PROTOCOL_VERSION) ||
-                (s_frame[3] != PARAMETER_FRAME_TYPE_SET)) {
-                g_parameter_service_diag.bad_type_count++;
-            } else {
-                g_parameter_service_diag.bad_length_count++;
-            }
-            Parameter_ResyncParser();
-            return;
-        }
-        s_expected_length =
-            (uint16_t) (16U + PARAMETER_SET_PAYLOAD_BYTES);
-    }
-
-    if ((s_expected_length != 0U) &&
-        (s_frame_length == s_expected_length)) {
-        uint16_t received_crc;
-        uint16_t calculated_crc;
-
-        if (SerialRx_GetOverflowCount() != s_seen_rx_overflow_count) {
-            Parameter_HandleRxOverflow();
-            return;
-        }
-        received_crc = Parameter_GetU16(
-            &s_frame[14U + PARAMETER_SET_PAYLOAD_BYTES]);
-        calculated_crc = Parameter_Crc16(
-            &s_frame[2], (uint16_t) (12U + PARAMETER_SET_PAYLOAD_BYTES));
-        if (received_crc != calculated_crc) {
-            g_parameter_service_diag.crc_error_count++;
-            Parameter_ResyncParser();
-            return;
-        }
-        Parameter_HandleValidFrame();
-        Parameter_ResetParser();
-    }
-}
-
 void ParameterService_Init(void)
 {
     memset((void *) &g_parameter_service_diag, 0,
         sizeof(g_parameter_service_diag));
-    s_frame_length = 0U;
-    s_expected_length = 0U;
-    s_last_byte_us = BSP_Time_GetUs();
-    s_seen_rx_overflow_count = SerialRx_GetOverflowCount();
-    g_parameter_service_diag.frame_timeout_count = 0U;
-    g_parameter_service_diag.overflow_reset_count = 0U;
-    g_parameter_service_diag.resync_count = 0U;
     s_last_transaction_valid = false;
     s_pending_valid = false;
     s_pending.transaction_id = 0U;
@@ -422,35 +196,6 @@ void ParameterService_Init(void)
     g_control_tuning_params.update_sequence = 0U;
     g_parameter_service_diag.last_status = PARAMETER_STATUS_BAD_FORMAT;
     g_parameter_service_diag.initialized = 1U;
-}
-
-void ParameterService_ProcessRx(void)
-{
-    uint8_t byte;
-    uint16_t processed = 0U;
-    uint32_t now_us = BSP_Time_GetUs();
-
-    Parameter_HandleRxOverflow();
-    if ((s_frame_length != 0U) &&
-        ((uint32_t) (now_us - s_last_byte_us) >=
-            PARAMETER_FRAME_TIMEOUT_US)) {
-        Parameter_ResetParser();
-        g_parameter_service_diag.frame_timeout_count++;
-    }
-    while ((processed < 128U) && SerialRx_TryRead(&byte)) {
-        if (SerialRx_GetOverflowCount() != s_seen_rx_overflow_count) {
-            Parameter_HandleRxOverflow();
-            break;
-        }
-        Parameter_ConsumeByte(byte);
-        g_parameter_service_diag.processed_byte_count++;
-        processed++;
-        now_us = BSP_Time_GetUs();
-        if (s_frame_length != 0U) {
-            s_last_byte_us = now_us;
-        }
-    }
-    Parameter_HandleRxOverflow();
 }
 
 size_t ParameterService_GetCount(void)

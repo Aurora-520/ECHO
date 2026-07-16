@@ -11,6 +11,16 @@ static StaticTask_t s_timer_task_tcb;
 static StackType_t s_timer_task_stack[configTIMER_TASK_STACK_DEPTH];
 #endif
 
+__attribute__((weak)) void RtosFault_EmergencyStop(void)
+{
+}
+
+static void RtosFault_PrepareHalt(void)
+{
+    taskDISABLE_INTERRUPTS();
+    RtosFault_EmergencyStop();
+}
+
 __attribute__((noreturn, noinline)) static void RtosFault_Loop(void)
 {
     for (;;) {
@@ -21,14 +31,14 @@ __attribute__((noreturn, noinline)) static void RtosFault_Loop(void)
 void RtosFault_Halt(rtos_fault_code_t code, TaskHandle_t task,
     const char *task_name, int line)
 {
-    taskDISABLE_INTERRUPTS();
+    RtosFault_PrepareHalt();
     RtosDiagnostics_RecordFault(code, task, task_name, NULL, line);
     RtosFault_Loop();
 }
 
 void RtosFault_Assert(const char *file, int line)
 {
-    taskDISABLE_INTERRUPTS();
+    RtosFault_PrepareHalt();
     RtosDiagnostics_RecordFault(
         RTOS_FAULT_ASSERT, NULL, NULL, file, line);
     RtosFault_Loop();
@@ -36,7 +46,7 @@ void RtosFault_Assert(const char *file, int line)
 
 void vApplicationMallocFailedHook(void)
 {
-    taskDISABLE_INTERRUPTS();
+    RtosFault_PrepareHalt();
     RtosDiagnostics_RecordFault(
         RTOS_FAULT_MALLOC_FAILED, NULL, NULL, NULL, 0);
     RtosFault_Loop();
@@ -44,7 +54,7 @@ void vApplicationMallocFailedHook(void)
 
 void vApplicationStackOverflowHook(TaskHandle_t task, char *task_name)
 {
-    taskDISABLE_INTERRUPTS();
+    RtosFault_PrepareHalt();
     RtosDiagnostics_RecordFault(
         RTOS_FAULT_STACK_OVERFLOW, task, task_name, NULL, 0);
     RtosFault_Loop();

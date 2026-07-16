@@ -85,6 +85,55 @@ extern "C" {
 bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 
 
+/* Defines for CHASSIS_PWM */
+#define CHASSIS_PWM_INST                                                   TIMA0
+#define CHASSIS_PWM_INST_IRQHandler                             TIMA0_IRQHandler
+#define CHASSIS_PWM_INST_INT_IRQN                               (TIMA0_INT_IRQn)
+#define CHASSIS_PWM_INST_CLK_FREQ                                        4000000
+/* GPIO defines for channel 0 */
+#define GPIO_CHASSIS_PWM_C0_PORT                                           GPIOB
+#define GPIO_CHASSIS_PWM_C0_PIN                                    DL_GPIO_PIN_8
+#define GPIO_CHASSIS_PWM_C0_IOMUX                                (IOMUX_PINCM25)
+#define GPIO_CHASSIS_PWM_C0_IOMUX_FUNC               IOMUX_PINCM25_PF_TIMA0_CCP0
+#define GPIO_CHASSIS_PWM_C0_IDX                              DL_TIMER_CC_0_INDEX
+/* GPIO defines for channel 1 */
+#define GPIO_CHASSIS_PWM_C1_PORT                                           GPIOB
+#define GPIO_CHASSIS_PWM_C1_PIN                                    DL_GPIO_PIN_9
+#define GPIO_CHASSIS_PWM_C1_IOMUX                                (IOMUX_PINCM26)
+#define GPIO_CHASSIS_PWM_C1_IOMUX_FUNC               IOMUX_PINCM26_PF_TIMA0_CCP1
+#define GPIO_CHASSIS_PWM_C1_IDX                              DL_TIMER_CC_1_INDEX
+/* GPIO defines for channel 2 */
+#define GPIO_CHASSIS_PWM_C2_PORT                                           GPIOB
+#define GPIO_CHASSIS_PWM_C2_PIN                                   DL_GPIO_PIN_12
+#define GPIO_CHASSIS_PWM_C2_IOMUX                                (IOMUX_PINCM29)
+#define GPIO_CHASSIS_PWM_C2_IOMUX_FUNC               IOMUX_PINCM29_PF_TIMA0_CCP2
+#define GPIO_CHASSIS_PWM_C2_IDX                              DL_TIMER_CC_2_INDEX
+/* GPIO defines for channel 3 */
+#define GPIO_CHASSIS_PWM_C3_PORT                                           GPIOB
+#define GPIO_CHASSIS_PWM_C3_PIN                                   DL_GPIO_PIN_13
+#define GPIO_CHASSIS_PWM_C3_IOMUX                                (IOMUX_PINCM30)
+#define GPIO_CHASSIS_PWM_C3_IOMUX_FUNC               IOMUX_PINCM30_PF_TIMA0_CCP3
+#define GPIO_CHASSIS_PWM_C3_IDX                              DL_TIMER_CC_3_INDEX
+
+
+
+
+/* Defines for LEFT_ENCODER_QEI */
+#define LEFT_ENCODER_QEI_INST                                              TIMG8
+#define LEFT_ENCODER_QEI_INST_IRQHandler                        TIMG8_IRQHandler
+#define LEFT_ENCODER_QEI_INST_INT_IRQN                          (TIMG8_INT_IRQn)
+/* Pin configuration defines for LEFT_ENCODER_QEI PHA Pin */
+#define GPIO_LEFT_ENCODER_QEI_PHA_PORT                                     GPIOA
+#define GPIO_LEFT_ENCODER_QEI_PHA_PIN                             DL_GPIO_PIN_29
+#define GPIO_LEFT_ENCODER_QEI_PHA_IOMUX                           (IOMUX_PINCM4)
+#define GPIO_LEFT_ENCODER_QEI_PHA_IOMUX_FUNC              IOMUX_PINCM4_PF_TIMG8_CCP0
+/* Pin configuration defines for LEFT_ENCODER_QEI PHB Pin */
+#define GPIO_LEFT_ENCODER_QEI_PHB_PORT                                     GPIOA
+#define GPIO_LEFT_ENCODER_QEI_PHB_PIN                             DL_GPIO_PIN_30
+#define GPIO_LEFT_ENCODER_QEI_PHB_IOMUX                           (IOMUX_PINCM5)
+#define GPIO_LEFT_ENCODER_QEI_PHB_IOMUX_FUNC              IOMUX_PINCM5_PF_TIMG8_CCP1
+
+
 /* Defines for TIMEBASE */
 #define TIMEBASE_INST                                                   (TIMG12)
 #define TIMEBASE_INST_IRQHandler                               TIMG12_IRQHandler
@@ -141,6 +190,19 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 /* Defines for USER_LED_1: GPIOB.22 with pinCMx 50 on package pin 21 */
 #define GPIO_LEDS_USER_LED_1_PIN                                (DL_GPIO_PIN_22)
 #define GPIO_LEDS_USER_LED_1_IOMUX                               (IOMUX_PINCM50)
+/* Port definition for Pin Group GPIO_RIGHT_ENCODER */
+#define GPIO_RIGHT_ENCODER_PORT                                          (GPIOB)
+
+/* Defines for RIGHT_ENCODER_E2A: GPIOB.6 with pinCMx 23 on package pin 58 */
+// pins affected by this interrupt request:["RIGHT_ENCODER_E2A"]
+#define GPIO_RIGHT_ENCODER_INT_IRQN                             (GPIOB_INT_IRQn)
+#define GPIO_RIGHT_ENCODER_INT_IIDX             (DL_INTERRUPT_GROUP1_IIDX_GPIOB)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_IIDX            (DL_GPIO_IIDX_DIO6)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN                 (DL_GPIO_PIN_6)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_IOMUX               (IOMUX_PINCM23)
+/* Defines for RIGHT_ENCODER_E2B: GPIOB.7 with pinCMx 24 on package pin 59 */
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_PIN                 (DL_GPIO_PIN_7)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_IOMUX               (IOMUX_PINCM24)
 
 
 /* clang-format on */
@@ -152,6 +214,8 @@ void SYSCFG_DL_SYSCTL_init(void);
 void SYSCFG_DL_SYSCTL_CLK_init(void);
 
 bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
+void SYSCFG_DL_CHASSIS_PWM_init(void);
+void SYSCFG_DL_LEFT_ENCODER_QEI_init(void);
 void SYSCFG_DL_TIMEBASE_init(void);
 void SYSCFG_DL_OLED_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);

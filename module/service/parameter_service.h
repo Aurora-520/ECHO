@@ -88,8 +88,10 @@ extern volatile parameter_service_diagnostics_t g_parameter_service_diag;
 
 void ParameterService_Init(void);
 
-/* ServiceTask parses UART; SystemTask is the only applied-value writer. */
-void ParameterService_ProcessRx(void);
+/* CommandService parses UART; SystemTask is the only applied-value writer. */
+void ParameterService_HandleUartSet(uint32_t transaction_id,
+    uint16_t parameter_id, uint8_t value_type,
+    uint8_t flags, float value);
 void ParameterService_ApplyPendingAtControlBoundary(void);
 
 parameter_status_t ParameterService_StageValue(uint32_t transaction_id,

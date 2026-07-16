@@ -6,9 +6,9 @@
 #include <stdint.h>
 
 #define SYSTEM_HEALTH_MAGIC       0x484C5448UL
-#define SYSTEM_HEALTH_VERSION     1U
-#define SYSTEM_HEALTH_BUILD_PHASE 0x010FU
-#define SYSTEM_HEALTH_BUILD_NAME  "P1F"
+#define SYSTEM_HEALTH_VERSION     2U
+#define SYSTEM_HEALTH_BUILD_PHASE 0x020AU
+#define SYSTEM_HEALTH_BUILD_NAME  "P2A"
 
 typedef enum {
     SYSTEM_HEALTH_UNKNOWN = 0U,
@@ -55,6 +55,9 @@ typedef enum {
     SYSTEM_HEALTH_ISSUE_OLED_OFFLINE = 13U,
     SYSTEM_HEALTH_ISSUE_DISPLAY_STALE = 14U,
     SYSTEM_HEALTH_ISSUE_PARAMETER_ACK_DROP = 15U,
+    SYSTEM_HEALTH_ISSUE_ENCODER_QEI_ERROR = 16U,
+    SYSTEM_HEALTH_ISSUE_ENCODER_ISR_LATE = 17U,
+    SYSTEM_HEALTH_ISSUE_ACTUATOR_COMMAND_REJECTED = 18U,
     SYSTEM_HEALTH_ISSUE_COUNT
 } system_health_issue_t;
 
@@ -108,6 +111,7 @@ typedef struct {
     uint32_t parameter_last_transaction_id;
     uint32_t i2c_success_count;
     uint32_t i2c_error_count;
+    uint32_t encoder_isr_late_count;
     uint32_t display_refresh_count;
     uint32_t quiet_acquired_count;
     uint32_t quiet_released_count;

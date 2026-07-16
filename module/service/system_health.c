@@ -4,9 +4,13 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "bsp_encoder.h"
 #include "bsp_i2c.h"
 #include "bsp_reset.h"
 #include "bsp_time.h"
+#include "chassis_actuator.h"
+#include "command_service.h"
+#include "motor_profile.h"
 #include "parameter_service.h"
 #include "rtos_diagnostics.h"
 #include "serial_rx.h"
@@ -33,6 +37,9 @@ typedef struct {
     uint32_t telemetry_drop_count;
     uint32_t i2c_error_count;
     uint32_t parameter_ack_drop_count;
+    uint32_t encoder_qei_error_count;
+    uint32_t encoder_isr_late_count;
+    uint32_t actuator_rejected_command_count;
 } system_health_event_baseline_t;
 
 static const system_health_source_descriptor_t s_source_descriptors[] = {
@@ -43,8 +50,8 @@ static const system_health_source_descriptor_t s_source_descriptors[] = {
     { SYSTEM_HEALTH_SOURCE_DISPLAY, "DISPLAY", "DisplayTask/SSD1306" },
     { SYSTEM_HEALTH_SOURCE_I2C, "I2C", "BSP I2C" },
     { SYSTEM_HEALTH_SOURCE_STORAGE, "STORAGE", "deferred" },
-    { SYSTEM_HEALTH_SOURCE_SENSOR, "SENSOR", "future sensor service" },
-    { SYSTEM_HEALTH_SOURCE_ACTUATOR, "ACTUATOR", "future arbiter" }
+    { SYSTEM_HEALTH_SOURCE_SENSOR, "SENSOR", "BSP encoder" },
+    { SYSTEM_HEALTH_SOURCE_ACTUATOR, "ACTUATOR", "ChassisActuator" }
 };
 
 static const system_health_issue_descriptor_t s_issue_descriptors[] = {
@@ -100,7 +107,19 @@ static const system_health_issue_descriptor_t s_issue_descriptors[] = {
     { SYSTEM_HEALTH_ISSUE_PARAMETER_ACK_DROP,
       SYSTEM_HEALTH_SOURCE_PARAMETERS, SYSTEM_HEALTH_DEGRADED,
       1U, "new drop", "ACK DROP",
-      "retry transaction and inspect telemetry queue", 1U }
+      "retry transaction and inspect telemetry queue", 1U },
+    { SYSTEM_HEALTH_ISSUE_ENCODER_QEI_ERROR,
+      SYSTEM_HEALTH_SOURCE_SENSOR, SYSTEM_HEALTH_FAULT,
+      1U, "invalid transition", "ENC QEI",
+      "keep outputs disabled and inspect encoder signal integrity", 0U },
+    { SYSTEM_HEALTH_ISSUE_ENCODER_ISR_LATE,
+      SYSTEM_HEALTH_SOURCE_SENSOR, SYSTEM_HEALTH_DEGRADED,
+      4U, "late edges/window", "ENC ISR",
+      "inspect sustained encoder ISR latency", 1U },
+    { SYSTEM_HEALTH_ISSUE_ACTUATOR_COMMAND_REJECTED,
+      SYSTEM_HEALTH_SOURCE_ACTUATOR, SYSTEM_HEALTH_DEGRADED,
+      1U, "rejected command", "ACT CMD",
+      "keep outputs disabled and inspect the one-shot request", 1U }
 };
 
 volatile system_health_snapshot_t g_system_health_snapshot;
@@ -124,12 +143,12 @@ static uint32_t SystemHealth_I2cErrorCount(void)
 
 static uint32_t SystemHealth_ParameterErrorCount(void)
 {
-    return g_parameter_service_diag.crc_error_count +
-        g_parameter_service_diag.bad_length_count +
-        g_parameter_service_diag.bad_type_count +
-        g_parameter_service_diag.bad_value_count +
-        g_parameter_service_diag.frame_timeout_count +
-        g_parameter_service_diag.overflow_reset_count;
+    return g_command_service_diag.crc_error_count +
+        g_command_service_diag.bad_length_count +
+        g_command_service_diag.bad_type_count +
+        g_command_service_diag.frame_timeout_count +
+        g_command_service_diag.overflow_reset_count +
+        g_parameter_service_diag.bad_value_count;
 }
 
 static uint32_t SystemHealth_TelemetryDropCount(void)
@@ -195,6 +214,16 @@ static void SystemHealth_RecordEvent(system_health_issue_t issue,
     uint32_t current, uint32_t previous, TickType_t now)
 {
     if (SystemHealth_HasNewEvent(current, previous)) {
+        s_event_seen[issue] = 1U;
+        s_event_last_tick[issue] = now;
+    }
+}
+
+static void SystemHealth_RecordEventThreshold(system_health_issue_t issue,
+    uint32_t current, uint32_t previous, uint32_t threshold,
+    TickType_t now)
+{
+    if ((uint32_t) (current - previous) >= threshold) {
         s_event_seen[issue] = 1U;
         s_event_last_tick[issue] = now;
     }
@@ -286,6 +315,8 @@ static void SystemHealth_CaptureMetrics(system_health_snapshot_t *snapshot)
         g_parameter_service_diag.last_transaction_id;
     snapshot->i2c_success_count = g_bsp_i2c_diag.write_success_count;
     snapshot->i2c_error_count = SystemHealth_I2cErrorCount();
+    snapshot->encoder_isr_late_count =
+        g_bsp_encoder_diag.right.late_irq_count;
     snapshot->display_refresh_count = g_ssd1306_diag.refresh_count;
     snapshot->quiet_acquired_count =
         g_serial_tx_diag.quiet_window_acquired_count;
@@ -305,6 +336,10 @@ static void SystemHealth_CaptureMetrics(system_health_snapshot_t *snapshot)
         (uint32_t) g_rtos_diag.display_task_last_wake_tick;
     snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_I2C] =
         (uint32_t) g_rtos_diag.display_task_last_wake_tick;
+    snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_SENSOR] =
+        (uint32_t) g_rtos_diag.system_task_last_wake_tick;
+    snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_ACTUATOR] =
+        (uint32_t) g_rtos_diag.system_task_last_wake_tick;
 
     snapshot->task_age_ticks[SYSTEM_HEALTH_TASK_SYSTEM] =
         SystemHealth_TaskAge(now, g_rtos_diag.system_task_last_wake_tick);
@@ -342,9 +377,9 @@ static void SystemHealth_CaptureMetrics(system_health_snapshot_t *snapshot)
     snapshot->parameter_last_status = g_parameter_service_diag.last_status;
     snapshot->quiet_window_active = g_serial_tx_diag.quiet_window_active;
 
-    /* Phase 1F has no actuator path; these safety flags remain false. */
-    snapshot->actuator_armed = 0U;
-    snapshot->actuator_output_permitted = 0U;
+    snapshot->actuator_armed = g_chassis_actuator_diag.armed;
+    snapshot->actuator_output_permitted =
+        g_chassis_actuator_diag.output_permitted;
     snapshot->reset_reason = g_bsp_reset_diag.reason;
     snapshot->reset_reason_valid = g_bsp_reset_diag.valid;
     snapshot->boot_count_valid = 0U;
@@ -378,6 +413,16 @@ static uint32_t SystemHealth_BuildActiveMask(
     SystemHealth_RecordEvent(SYSTEM_HEALTH_ISSUE_PARAMETER_ACK_DROP,
         g_parameter_service_diag.ack_publish_drop_count,
         s_event_baseline.parameter_ack_drop_count, now);
+    SystemHealth_RecordEvent(SYSTEM_HEALTH_ISSUE_ENCODER_QEI_ERROR,
+        g_bsp_encoder_diag.left_qei_error_count,
+        s_event_baseline.encoder_qei_error_count, now);
+    SystemHealth_RecordEventThreshold(SYSTEM_HEALTH_ISSUE_ENCODER_ISR_LATE,
+        g_bsp_encoder_diag.right.late_irq_count,
+        s_event_baseline.encoder_isr_late_count, 4U, now);
+    SystemHealth_RecordEvent(
+        SYSTEM_HEALTH_ISSUE_ACTUATOR_COMMAND_REJECTED,
+        g_chassis_actuator_diag.rejected_request_count,
+        s_event_baseline.actuator_rejected_command_count, now);
 
     if (g_rtos_diag.fault_code != (uint32_t) RTOS_FAULT_NONE) {
         SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_RTOS_FATAL);
@@ -445,6 +490,21 @@ static uint32_t SystemHealth_BuildActiveMask(
         SystemHealth_AddIssue(&mask,
             SYSTEM_HEALTH_ISSUE_PARAMETER_ACK_DROP);
     }
+    if (SystemHealth_EventIsActive(
+            SYSTEM_HEALTH_ISSUE_ENCODER_QEI_ERROR, now)) {
+        SystemHealth_AddIssue(&mask,
+            SYSTEM_HEALTH_ISSUE_ENCODER_QEI_ERROR);
+    }
+    if (SystemHealth_EventIsActive(
+            SYSTEM_HEALTH_ISSUE_ENCODER_ISR_LATE, now)) {
+        SystemHealth_AddIssue(&mask,
+            SYSTEM_HEALTH_ISSUE_ENCODER_ISR_LATE);
+    }
+    if (SystemHealth_EventIsActive(
+            SYSTEM_HEALTH_ISSUE_ACTUATOR_COMMAND_REJECTED, now)) {
+        SystemHealth_AddIssue(&mask,
+            SYSTEM_HEALTH_ISSUE_ACTUATOR_COMMAND_REJECTED);
+    }
 
     mask |= g_system_health_debug_inject_mask &
         SYSTEM_HEALTH_VALID_ISSUE_MASK;
@@ -465,6 +525,12 @@ static void SystemHealth_UpdateEventBaseline(void)
     s_event_baseline.i2c_error_count = SystemHealth_I2cErrorCount();
     s_event_baseline.parameter_ack_drop_count =
         g_parameter_service_diag.ack_publish_drop_count;
+    s_event_baseline.encoder_qei_error_count =
+        g_bsp_encoder_diag.left_qei_error_count;
+    s_event_baseline.encoder_isr_late_count =
+        g_bsp_encoder_diag.right.late_irq_count;
+    s_event_baseline.actuator_rejected_command_count =
+        g_chassis_actuator_diag.rejected_request_count;
 }
 
 static void SystemHealth_UpdateLevels(system_health_snapshot_t *snapshot)
@@ -494,9 +560,13 @@ static void SystemHealth_UpdateLevels(system_health_snapshot_t *snapshot)
     snapshot->source_level[SYSTEM_HEALTH_SOURCE_STORAGE] =
         SYSTEM_HEALTH_UNKNOWN;
     snapshot->source_level[SYSTEM_HEALTH_SOURCE_SENSOR] =
-        SYSTEM_HEALTH_UNKNOWN;
+        ((g_bsp_encoder_diag.left.initialized != 0U) &&
+         (g_bsp_encoder_diag.right.initialized != 0U)) ?
+        SYSTEM_HEALTH_OK : SYSTEM_HEALTH_UNKNOWN;
     snapshot->source_level[SYSTEM_HEALTH_SOURCE_ACTUATOR] =
-        SYSTEM_HEALTH_UNKNOWN;
+        ((g_chassis_actuator_diag.initialized != 0U) &&
+         (g_motor_profile_diag.selection_valid != 0U)) ?
+        SYSTEM_HEALTH_OK : SYSTEM_HEALTH_UNKNOWN;
 
     snapshot->task_level[SYSTEM_HEALTH_TASK_SYSTEM] =
         (g_rtos_diag.scheduler_started != 0U) ?

@@ -24,9 +24,14 @@ $ProtocolVersion = 1
 $ControlFrameType = 1
 $ParameterAckFrameType = 3
 $HealthFrameType = 4
+$ActuatorAckFrameType = 6
+$MotorProfileFrameType = 7
 $ControlPayloadLength = 40
 $ParameterAckPayloadLength = 16
-$HealthPayloadLength = 112
+$LegacyHealthPayloadLength = 112
+$HealthPayloadLength = 116
+$ActuatorAckPayloadLength = 16
+$MotorProfilePayloadLength = 36
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 128
 [uint64]$U32HalfRange = 2147483648
@@ -54,6 +59,15 @@ function Get-U32Delta {
 
     [int64]$modulus = 4294967296
     return [uint64]((([int64]$Current - [int64]$Previous + $modulus) % $modulus))
+}
+
+function Get-I8 {
+    param([byte]$Value)
+
+    if ($Value -ge 128) {
+        return [int]$Value - 256
+    }
+    return [int]$Value
 }
 
 function Get-RateHz {
@@ -172,6 +186,8 @@ $validFrames = 0
 $controlFrames = 0
 $healthFrames = 0
 $parameterAckFrames = 0
+$actuatorAckFrames = 0
+$motorProfileFrames = 0
 $unknownFrames = 0
 $crcErrors = 0
 [uint64]$sequenceGaps = 0
@@ -187,12 +203,16 @@ $firstControlTimestamp = $null
 $lastControlTimestamp = $null
 $firstHealthTimestamp = $null
 $lastHealthTimestamp = $null
+$firstMotorProfileTimestamp = $null
+$lastMotorProfileTimestamp = $null
 $minimumPeriodUs = [uint32]::MaxValue
 $maximumPeriodUs = 0
 $maximumExecutionUs = 0
 $maximumJitterUs = 0
 $deadlineMissCount = 0
 $latestHealth = $null
+$latestActuatorAck = $null
+$latestMotorProfile = $null
 
 try {
     while (($offset + $MinimumFrameLength) -le $data.Length) {
@@ -306,7 +326,8 @@ try {
             }
         }
         elseif (($frameType -eq $HealthFrameType) -and
-            ($payloadLength -eq $HealthPayloadLength)) {
+            (($payloadLength -eq $HealthPayloadLength) -or
+             ($payloadLength -eq $LegacyHealthPayloadLength))) {
             $healthFrames++
             if ($null -eq $firstHealthTimestamp) {
                 $firstHealthTimestamp = $timestampUs
@@ -354,11 +375,75 @@ try {
                 TimerStackFreeWords = [BitConverter]::ToUInt16($data, $payloadOffset + 106)
                 SerialRingHighWaterBytes = [BitConverter]::ToUInt16($data, $payloadOffset + 108)
                 QuietWindowActive = $data[$payloadOffset + 110]
+                EncoderIsrLateCount = if ($payloadLength -ge $HealthPayloadLength) {
+                    [BitConverter]::ToUInt32($data, $payloadOffset + 112)
+                } else { 0 }
             }
         }
         elseif (($frameType -eq $ParameterAckFrameType) -and
             ($payloadLength -eq $ParameterAckPayloadLength)) {
             $parameterAckFrames++
+        }
+        elseif (($frameType -eq $ActuatorAckFrameType) -and
+            ($payloadLength -eq $ActuatorAckPayloadLength)) {
+            $actuatorAckFrames++
+            $latestActuatorAck = [pscustomobject]@{
+                Sequence = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset)
+                LeftElectricalPermille = [BitConverter]::ToInt16(
+                    $data, $payloadOffset + 4)
+                RightElectricalPermille = [BitConverter]::ToInt16(
+                    $data, $payloadOffset + 6)
+                DurationMs = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 8)
+                Status = $data[$payloadOffset + 10]
+                Reserved = $data[$payloadOffset + 11]
+                AcceptedRequestCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 12)
+            }
+        }
+        elseif (($frameType -eq $MotorProfileFrameType) -and
+            ($payloadLength -eq $MotorProfilePayloadLength)) {
+            $motorProfileFrames++
+            if ($null -eq $firstMotorProfileTimestamp) {
+                $firstMotorProfileTimestamp = $timestampUs
+            }
+            $lastMotorProfileTimestamp = $timestampUs
+            $profileId = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 2)
+            $profileModel = switch ($profileId) {
+                1 { "MG370" }
+                2 { "513X" }
+                default { "UNKNOWN" }
+            }
+            $latestMotorProfile = [pscustomobject]@{
+                SchemaVersion = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset)
+                ProfileId = $profileId
+                Model = $profileModel
+                ProfileVersion = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 4)
+                StatusFlags = ('0x{0:X4}' -f [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 6))
+                ValidFields = ('0x{0:X8}' -f [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 8))
+                RatedVoltageMv = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 12)
+                EncoderPpr = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 16)
+                LeftCountsPerRevolution = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 20)
+                RightCountsPerRevolution = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 24)
+                LeftMotorOutputSign = Get-I8 $data[$payloadOffset + 28]
+                RightMotorOutputSign = Get-I8 $data[$payloadOffset + 29]
+                LeftEncoderCountSign = Get-I8 $data[$payloadOffset + 30]
+                RightEncoderCountSign = Get-I8 $data[$payloadOffset + 31]
+                LeftDecodeMultiplier = $data[$payloadOffset + 32]
+                RightDecodeMultiplier = $data[$payloadOffset + 33]
+                ActuatorTestReady = $data[$payloadOffset + 34]
+                OutputLocked = $data[$payloadOffset + 35]
+            }
         }
         else {
             $unknownFrames++
@@ -388,6 +473,11 @@ $summary = [pscustomobject]@{
     HealthRateHz = Get-RateHz -Count $healthFrames `
         -FirstTimestamp $firstHealthTimestamp -LastTimestamp $lastHealthTimestamp
     ParameterAckFrames = $parameterAckFrames
+    ActuatorAckFrames = $actuatorAckFrames
+    MotorProfileFrames = $motorProfileFrames
+    MotorProfileRateHz = Get-RateHz -Count $motorProfileFrames `
+        -FirstTimestamp $firstMotorProfileTimestamp `
+        -LastTimestamp $lastMotorProfileTimestamp
     UnknownFrames = $unknownFrames
     CrcErrors = $crcErrors
     SequenceGaps = $sequenceGaps
@@ -405,6 +495,8 @@ $summary = [pscustomobject]@{
     MaximumJitterUs = $maximumJitterUs
     DeadlineMissCount = $deadlineMissCount
     LatestHealth = $latestHealth
+    LatestActuatorAck = $latestActuatorAck
+    LatestMotorProfile = $latestMotorProfile
     CsvPath = $CsvPath
     JsonPath = $JsonPath
 }

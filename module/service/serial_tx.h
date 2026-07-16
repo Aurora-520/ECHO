@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define SERIAL_TX_RING_CAPACITY_BYTES 1024U
-#define SERIAL_TX_MAX_WRITE_BYTES     128U
+#define SERIAL_TX_MAX_WRITE_BYTES     160U
 
 typedef struct {
     uint32_t write_accepted_count;

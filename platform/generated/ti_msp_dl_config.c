@@ -40,6 +40,9 @@
 
 #include "ti_msp_dl_config.h"
 
+DL_TimerA_backupConfig gCHASSIS_PWMBackup;
+DL_TimerG_backupConfig gLEFT_ENCODER_QEIBackup;
+
 /*
  *  ======== SYSCFG_DL_init ========
  *  Perform any initialization needed before using any board APIs
@@ -50,19 +53,51 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_GPIO_init();
     /* Module-Specific Initializations*/
     SYSCFG_DL_SYSCTL_init();
+    SYSCFG_DL_CHASSIS_PWM_init();
+    SYSCFG_DL_LEFT_ENCODER_QEI_init();
     SYSCFG_DL_TIMEBASE_init();
     SYSCFG_DL_OLED_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
     SYSCFG_DL_DMA_init();
     SYSCFG_DL_SYSCTL_CLK_init();
+    /* Ensure backup structures have no valid state */
+	gCHASSIS_PWMBackup.backupRdy 	= false;
+	gLEFT_ENCODER_QEIBackup.backupRdy 	= false;
+
+
+
+}
+/*
+ * User should take care to save and restore register configuration in application.
+ * See Retention Configuration section for more details.
+ */
+SYSCONFIG_WEAK bool SYSCFG_DL_saveConfiguration(void)
+{
+    bool retStatus = true;
+
+	retStatus &= DL_TimerA_saveConfiguration(CHASSIS_PWM_INST, &gCHASSIS_PWMBackup);
+	retStatus &= DL_TimerG_saveConfiguration(LEFT_ENCODER_QEI_INST, &gLEFT_ENCODER_QEIBackup);
+
+    return retStatus;
 }
 
 
+SYSCONFIG_WEAK bool SYSCFG_DL_restoreConfiguration(void)
+{
+    bool retStatus = true;
+
+	retStatus &= DL_TimerA_restoreConfiguration(CHASSIS_PWM_INST, &gCHASSIS_PWMBackup, false);
+	retStatus &= DL_TimerG_restoreConfiguration(LEFT_ENCODER_QEI_INST, &gLEFT_ENCODER_QEIBackup, false);
+
+    return retStatus;
+}
 
 SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 {
     DL_GPIO_reset(GPIOA);
     DL_GPIO_reset(GPIOB);
+    DL_TimerA_reset(CHASSIS_PWM_INST);
+    DL_TimerG_reset(LEFT_ENCODER_QEI_INST);
     DL_TimerG_reset(TIMEBASE_INST);
     DL_I2C_reset(OLED_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
@@ -70,6 +105,8 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 
     DL_GPIO_enablePower(GPIOA);
     DL_GPIO_enablePower(GPIOB);
+    DL_TimerA_enablePower(CHASSIS_PWM_INST);
+    DL_TimerG_enablePower(LEFT_ENCODER_QEI_INST);
     DL_TimerG_enablePower(TIMEBASE_INST);
     DL_I2C_enablePower(OLED_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
@@ -79,6 +116,20 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 
 SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 {
+
+    DL_GPIO_initPeripheralOutputFunction(GPIO_CHASSIS_PWM_C0_IOMUX,GPIO_CHASSIS_PWM_C0_IOMUX_FUNC);
+    DL_GPIO_enableOutput(GPIO_CHASSIS_PWM_C0_PORT, GPIO_CHASSIS_PWM_C0_PIN);
+    DL_GPIO_initPeripheralOutputFunction(GPIO_CHASSIS_PWM_C1_IOMUX,GPIO_CHASSIS_PWM_C1_IOMUX_FUNC);
+    DL_GPIO_enableOutput(GPIO_CHASSIS_PWM_C1_PORT, GPIO_CHASSIS_PWM_C1_PIN);
+    DL_GPIO_initPeripheralOutputFunction(GPIO_CHASSIS_PWM_C2_IOMUX,GPIO_CHASSIS_PWM_C2_IOMUX_FUNC);
+    DL_GPIO_enableOutput(GPIO_CHASSIS_PWM_C2_PORT, GPIO_CHASSIS_PWM_C2_PIN);
+    DL_GPIO_initPeripheralOutputFunction(GPIO_CHASSIS_PWM_C3_IOMUX,GPIO_CHASSIS_PWM_C3_IOMUX_FUNC);
+    DL_GPIO_enableOutput(GPIO_CHASSIS_PWM_C3_PORT, GPIO_CHASSIS_PWM_C3_PIN);
+
+    DL_GPIO_initPeripheralInputFunction(GPIO_LEFT_ENCODER_QEI_PHA_IOMUX,GPIO_LEFT_ENCODER_QEI_PHA_IOMUX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(GPIO_LEFT_ENCODER_QEI_PHB_IOMUX,GPIO_LEFT_ENCODER_QEI_PHB_IOMUX_FUNC);
+
+    
 	DL_GPIO_initPeripheralInputFunctionFeatures(
 		 GPIO_OLED_I2C_IOMUX_SDA, GPIO_OLED_I2C_IOMUX_SDA_FUNC,
 		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
@@ -99,8 +150,19 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN,
 		 DL_GPIO_DRIVE_STRENGTH_LOW, DL_GPIO_HIZ_DISABLE);
 
-    DL_GPIO_setPins(GPIO_LEDS_PORT, GPIO_LEDS_USER_LED_1_PIN);
-    DL_GPIO_enableOutput(GPIO_LEDS_PORT, GPIO_LEDS_USER_LED_1_PIN);
+    DL_GPIO_initDigitalInputFeatures(GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_IOMUX,
+		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+
+    DL_GPIO_initDigitalInputFeatures(GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_IOMUX,
+		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+
+    DL_GPIO_setPins(GPIOB, GPIO_LEDS_USER_LED_1_PIN);
+    DL_GPIO_enableOutput(GPIOB, GPIO_LEDS_USER_LED_1_PIN);
+    DL_GPIO_setLowerPinsPolarity(GPIOB, DL_GPIO_PIN_6_EDGE_RISE);
+    DL_GPIO_clearInterruptStatus(GPIOB, GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN);
+    DL_GPIO_enableInterrupt(GPIOB, GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN);
 
 }
 
@@ -229,6 +291,95 @@ SYSCONFIG_WEAK void SYSCFG_DL_SYSCTL_CLK_init(void) {
 	}
 }
 
+
+
+/*
+ * Timer clock configuration to be sourced by  / 1 (4000000 Hz)
+ * timerClkFreq = (timerClkSrc / (timerClkDivRatio * (timerClkPrescale + 1)))
+ *   4000000 Hz = 4000000 Hz / (1 * (0 + 1))
+ */
+static const DL_TimerA_ClockConfig gCHASSIS_PWMClockConfig = {
+    .clockSel = DL_TIMER_CLOCK_MFCLK,
+    .divideRatio = DL_TIMER_CLOCK_DIVIDE_1,
+    .prescale = 0U
+};
+
+static const DL_TimerA_PWMConfig gCHASSIS_PWMConfig = {
+    .pwmMode = DL_TIMER_PWM_MODE_EDGE_ALIGN,
+    .period = 399,
+    .isTimerWithFourCC = true,
+    .startTimer = DL_TIMER_STOP,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_CHASSIS_PWM_init(void) {
+
+    DL_TimerA_setClockConfig(
+        CHASSIS_PWM_INST, (DL_TimerA_ClockConfig *) &gCHASSIS_PWMClockConfig);
+
+    DL_TimerA_initPWMMode(
+        CHASSIS_PWM_INST, (DL_TimerA_PWMConfig *) &gCHASSIS_PWMConfig);
+
+    // Set Counter control to the smallest CC index being used
+    DL_TimerA_setCounterControl(CHASSIS_PWM_INST,DL_TIMER_CZC_CCCTL0_ZCOND,DL_TIMER_CAC_CCCTL0_ACOND,DL_TIMER_CLC_CCCTL0_LCOND);
+
+    DL_TimerA_setCaptureCompareOutCtl(CHASSIS_PWM_INST, DL_TIMER_CC_OCTL_INIT_VAL_LOW,
+		DL_TIMER_CC_OCTL_INV_OUT_DISABLED, DL_TIMER_CC_OCTL_SRC_FUNCVAL,
+		DL_TIMERA_CAPTURE_COMPARE_0_INDEX);
+
+    DL_TimerA_setCaptCompUpdateMethod(CHASSIS_PWM_INST, DL_TIMER_CC_UPDATE_METHOD_ZERO_EVT, DL_TIMERA_CAPTURE_COMPARE_0_INDEX);
+    DL_TimerA_setCaptureCompareValue(CHASSIS_PWM_INST, 399, DL_TIMER_CC_0_INDEX);
+
+    DL_TimerA_setCaptureCompareOutCtl(CHASSIS_PWM_INST, DL_TIMER_CC_OCTL_INIT_VAL_LOW,
+		DL_TIMER_CC_OCTL_INV_OUT_DISABLED, DL_TIMER_CC_OCTL_SRC_FUNCVAL,
+		DL_TIMERA_CAPTURE_COMPARE_1_INDEX);
+
+    DL_TimerA_setCaptCompUpdateMethod(CHASSIS_PWM_INST, DL_TIMER_CC_UPDATE_METHOD_ZERO_EVT, DL_TIMERA_CAPTURE_COMPARE_1_INDEX);
+    DL_TimerA_setCaptureCompareValue(CHASSIS_PWM_INST, 399, DL_TIMER_CC_1_INDEX);
+
+    DL_TimerA_setCaptureCompareOutCtl(CHASSIS_PWM_INST, DL_TIMER_CC_OCTL_INIT_VAL_LOW,
+		DL_TIMER_CC_OCTL_INV_OUT_DISABLED, DL_TIMER_CC_OCTL_SRC_FUNCVAL,
+		DL_TIMERA_CAPTURE_COMPARE_2_INDEX);
+
+    DL_TimerA_setCaptCompUpdateMethod(CHASSIS_PWM_INST, DL_TIMER_CC_UPDATE_METHOD_ZERO_EVT, DL_TIMERA_CAPTURE_COMPARE_2_INDEX);
+    DL_TimerA_setCaptureCompareValue(CHASSIS_PWM_INST, 399, DL_TIMER_CC_2_INDEX);
+
+    DL_TimerA_setCaptureCompareOutCtl(CHASSIS_PWM_INST, DL_TIMER_CC_OCTL_INIT_VAL_LOW,
+		DL_TIMER_CC_OCTL_INV_OUT_DISABLED, DL_TIMER_CC_OCTL_SRC_FUNCVAL,
+		DL_TIMERA_CAPTURE_COMPARE_3_INDEX);
+
+    DL_TimerA_setCaptCompUpdateMethod(CHASSIS_PWM_INST, DL_TIMER_CC_UPDATE_METHOD_ZERO_EVT, DL_TIMERA_CAPTURE_COMPARE_3_INDEX);
+    DL_TimerA_setCaptureCompareValue(CHASSIS_PWM_INST, 399, DL_TIMER_CC_3_INDEX);
+
+    DL_TimerA_enableClock(CHASSIS_PWM_INST);
+
+
+    
+    DL_TimerA_setCCPDirection(CHASSIS_PWM_INST , DL_TIMER_CC0_OUTPUT | DL_TIMER_CC1_OUTPUT | DL_TIMER_CC2_OUTPUT | DL_TIMER_CC3_OUTPUT );
+    DL_TimerA_enableShadowFeatures(CHASSIS_PWM_INST);
+
+
+}
+
+
+static const DL_TimerG_ClockConfig gLEFT_ENCODER_QEIClockConfig = {
+    .clockSel = DL_TIMER_CLOCK_BUSCLK,
+    .divideRatio = DL_TIMER_CLOCK_DIVIDE_1,
+    .prescale = 0U
+};
+
+
+SYSCONFIG_WEAK void SYSCFG_DL_LEFT_ENCODER_QEI_init(void) {
+
+    DL_TimerG_setClockConfig(
+        LEFT_ENCODER_QEI_INST, (DL_TimerG_ClockConfig *) &gLEFT_ENCODER_QEIClockConfig);
+
+    DL_TimerG_configQEI(LEFT_ENCODER_QEI_INST, DL_TIMER_QEI_MODE_2_INPUT,
+        DL_TIMER_CC_INPUT_INV_NOINVERT, DL_TIMER_CC_0_INDEX);
+    DL_TimerG_configQEI(LEFT_ENCODER_QEI_INST, DL_TIMER_QEI_MODE_2_INPUT,
+        DL_TIMER_CC_INPUT_INV_NOINVERT, DL_TIMER_CC_1_INDEX);
+    DL_TimerG_setLoadValue(LEFT_ENCODER_QEI_INST, 65535);
+    DL_TimerG_enableClock(LEFT_ENCODER_QEI_INST);
+}
 
 
 

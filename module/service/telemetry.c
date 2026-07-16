@@ -25,7 +25,9 @@
 typedef enum {
     TELEMETRY_MESSAGE_CONTROL = 1U,
     TELEMETRY_MESSAGE_PARAMETER_ACK = 2U,
-    TELEMETRY_MESSAGE_HEALTH = 3U
+    TELEMETRY_MESSAGE_HEALTH = 3U,
+    TELEMETRY_MESSAGE_ACTUATOR_ACK = 4U,
+    TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -71,7 +73,28 @@ typedef struct {
     uint16_t serial_ring_high_water_bytes;
     uint8_t quiet_window_active;
     uint8_t reserved;
+    uint32_t encoder_isr_late_count;
 } telemetry_health_sample_t;
+
+typedef struct {
+    uint16_t schema_version;
+    uint16_t profile_id;
+    uint16_t profile_version;
+    uint16_t status_flags;
+    uint32_t valid_fields;
+    uint32_t rated_voltage_mv;
+    uint32_t encoder_ppr;
+    uint32_t left_counts_per_revolution;
+    uint32_t right_counts_per_revolution;
+    int8_t left_motor_output_sign;
+    int8_t right_motor_output_sign;
+    int8_t left_encoder_count_sign;
+    int8_t right_encoder_count_sign;
+    uint8_t left_decode_multiplier;
+    uint8_t right_decode_multiplier;
+    uint8_t actuator_test_ready;
+    uint8_t output_locked;
+} telemetry_motor_profile_sample_t;
 
 typedef struct {
     uint8_t kind;
@@ -81,6 +104,8 @@ typedef struct {
     union {
         telemetry_control_sample_t control;
         telemetry_parameter_ack_t parameter_ack;
+        telemetry_actuator_ack_t actuator_ack;
+        telemetry_motor_profile_sample_t motor_profile;
         telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
@@ -206,6 +231,62 @@ static uint16_t Telemetry_EncodeParameterAck(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeActuatorAck(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_actuator_ack_t *ack =
+        &message->data.actuator_ack;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_ACTUATOR_ACK_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_ACTUATOR_ACK, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], ack->sequence);
+    Telemetry_PutU16(&payload[4],
+        (uint16_t) ack->left_electrical_permille);
+    Telemetry_PutU16(&payload[6],
+        (uint16_t) ack->right_electrical_permille);
+    Telemetry_PutU16(&payload[8], ack->duration_ms);
+    payload[10] = ack->status;
+    payload[11] = ack->reserved;
+    Telemetry_PutU32(&payload[12], ack->accepted_request_count);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
+static uint16_t Telemetry_EncodeMotorProfile(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_motor_profile_sample_t *profile =
+        &message->data.motor_profile;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_MOTOR_PROFILE_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_MOTOR_PROFILE, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU16(&payload[0], profile->schema_version);
+    Telemetry_PutU16(&payload[2], profile->profile_id);
+    Telemetry_PutU16(&payload[4], profile->profile_version);
+    Telemetry_PutU16(&payload[6], profile->status_flags);
+    Telemetry_PutU32(&payload[8], profile->valid_fields);
+    Telemetry_PutU32(&payload[12], profile->rated_voltage_mv);
+    Telemetry_PutU32(&payload[16], profile->encoder_ppr);
+    Telemetry_PutU32(&payload[20],
+        profile->left_counts_per_revolution);
+    Telemetry_PutU32(&payload[24],
+        profile->right_counts_per_revolution);
+    payload[28] = (uint8_t) profile->left_motor_output_sign;
+    payload[29] = (uint8_t) profile->right_motor_output_sign;
+    payload[30] = (uint8_t) profile->left_encoder_count_sign;
+    payload[31] = (uint8_t) profile->right_encoder_count_sign;
+    payload[32] = profile->left_decode_multiplier;
+    payload[33] = profile->right_decode_multiplier;
+    payload[34] = profile->actuator_test_ready;
+    payload[35] = profile->output_locked;
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static uint16_t Telemetry_EncodeHealth(
     const telemetry_message_t *message, uint8_t *frame)
 {
@@ -260,6 +341,7 @@ static uint16_t Telemetry_EncodeHealth(
         health->serial_ring_high_water_bytes);
     payload[110] = health->quiet_window_active;
     payload[111] = 0U;
+    Telemetry_PutU32(&payload[112], health->encoder_isr_late_count);
     return Telemetry_EndFrame(frame, payload_length);
 }
 
@@ -289,10 +371,18 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeParameterAck(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_PARAMETER_ACK;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_HEALTH) {
             frame_length = Telemetry_EncodeHealth(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_HEALTH;
+        } else if (message.kind == TELEMETRY_MESSAGE_ACTUATOR_ACK) {
+            frame_length = Telemetry_EncodeActuatorAck(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_ACTUATOR_ACK;
+        } else {
+            frame_length = Telemetry_EncodeMotorProfile(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_MOTOR_PROFILE;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -404,6 +494,77 @@ bool Telemetry_PublishParameterAck(
     return accepted;
 }
 
+bool Telemetry_PublishActuatorAck(const telemetry_actuator_ack_t *ack)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.actuator_ack_attempt_count++;
+    if ((ack == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.actuator_ack_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_ACTUATOR_ACK;
+    message.data.actuator_ack = *ack;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.actuator_ack_accepted_count++;
+    } else {
+        g_telemetry_diag.actuator_ack_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishMotorProfile(const motor_profile_t *profile)
+{
+    telemetry_message_t message;
+    telemetry_motor_profile_sample_t *sample =
+        &message.data.motor_profile;
+    const motor_wheel_profile_t *left;
+    const motor_wheel_profile_t *right;
+    bool accepted;
+
+    g_telemetry_diag.motor_profile_attempt_count++;
+    if ((profile == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.motor_profile_dropped_count++;
+        return false;
+    }
+    left = &profile->wheel[MOTOR_WHEEL_LEFT];
+    right = &profile->wheel[MOTOR_WHEEL_RIGHT];
+    sample->schema_version = profile->schema_version;
+    sample->profile_id = profile->profile_id;
+    sample->profile_version = profile->profile_version;
+    sample->status_flags = (uint16_t) profile->status_flags;
+    sample->valid_fields = profile->valid_fields;
+    sample->rated_voltage_mv = profile->rated_voltage_mv;
+    sample->encoder_ppr = profile->encoder_ppr;
+    sample->left_counts_per_revolution =
+        left->counts_per_output_revolution;
+    sample->right_counts_per_revolution =
+        right->counts_per_output_revolution;
+    sample->left_motor_output_sign = left->motor_output_sign;
+    sample->right_motor_output_sign = right->motor_output_sign;
+    sample->left_encoder_count_sign = left->encoder_count_sign;
+    sample->right_encoder_count_sign = right->encoder_count_sign;
+    sample->left_decode_multiplier =
+        left->encoder_decode_multiplier;
+    sample->right_decode_multiplier =
+        right->encoder_decode_multiplier;
+    sample->actuator_test_ready =
+        g_motor_profile_diag.actuator_test_ready;
+    sample->output_locked = g_motor_profile_diag.output_locked;
+
+    message.kind = TELEMETRY_MESSAGE_MOTOR_PROFILE;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.motor_profile_accepted_count++;
+    } else {
+        g_telemetry_diag.motor_profile_dropped_count++;
+    }
+    return accepted;
+}
+
 static uint16_t Telemetry_MinimumStackWords(
     const system_health_snapshot_t *snapshot)
 {
@@ -487,6 +648,7 @@ bool Telemetry_PublishHealth(const system_health_snapshot_t *snapshot)
         snapshot->serial_ring_high_water_bytes;
     health->quiet_window_active = snapshot->quiet_window_active;
     health->reserved = 0U;
+    health->encoder_isr_late_count = snapshot->encoder_isr_late_count;
 
     accepted = Telemetry_EnqueueMessage(&message);
     if (accepted) {

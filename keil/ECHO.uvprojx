@@ -337,7 +337,7 @@
               <MiscControls></MiscControls>
               <Define>__MSPM0G3507__</Define>
               <Undefine></Undefine>
-              <IncludePath>..\app;..\app\tasks;..\app\ui;..\bsp\include;..\module\device;..\module\service;..\config;..\platform\freertos;..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
+              <IncludePath>..\app;..\app\tasks;..\app\ui;..\bsp\include;..\module\control;..\module\device;..\module\service;..\config;..\platform\freertos;..\platform\generated;..\freertos;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source\third_party\CMSIS\Core\Include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\include;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\source;D:\sftoware\TI_CCS\mspm0_sdk_2_10_00_04\kernel\freertos\Source\portable\GCC\ARM_CM0</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -437,6 +437,16 @@
               <FilePath>..\module\service\serial_rx.c</FilePath>
             </File>
             <File>
+              <FileName>command_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\command_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_profile.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\motor_profile.c</FilePath>
+            </File>
+            <File>
               <FileName>parameter_service.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\module\service\parameter_service.c</FilePath>
@@ -445,6 +455,16 @@
               <FileName>system_health.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\module\service\system_health.c</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_actuator.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\chassis_actuator.c</FilePath>
+            </File>
+            <File>
+              <FileName>wheel_speed_controller.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\control\wheel_speed_controller.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -460,6 +480,16 @@
               <FileName>bsp_time.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_time.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_encoder.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_encoder.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_motor.c</FilePath>
             </File>
             <File>
               <FileName>bsp_reset.c</FileName>
