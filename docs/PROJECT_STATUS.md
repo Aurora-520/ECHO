@@ -1,6 +1,6 @@
 # ECHO 当前状态
 
-最后核对日期：2026-07-15（Asia/Shanghai）
+最后核对日期：2026-07-16（Asia/Shanghai）
 
 ## 1. 权威仓库
 
@@ -10,10 +10,10 @@
 - 最近已验收固件：本文件所在的 Phase 1F 提交
 - 阶段标签：`phase-1f-operability-diagnostics`
 - 基线父提交：`cb7c4c32783cf7eeeabbbdec4a193aee99077159` / `phase-1e-oled-ui`
-- 远端 `origin/main`：`e7a1ac7` / Phase 1D，尚未 push
+- 远端 `origin/main`：`4b1a3db` / Phase 1F，已 push
 
-Phase 1F 合入正式 main 后，main 比 origin/main 领先 Phase 1E 与 Phase 1F 两个阶段提交。
-不得自动 push。Phase 2A 已从正式 Phase 1F 基线创建独立分支/worktree：
+Phase 1E 与 Phase 1F 已合入正式 main 并推送至 GitHub。Phase 2A 已从正式 Phase 1F 基线
+创建独立分支/worktree，完成成果已推送至 `origin/phase-2a-at8236-chassis-encoder`：
 
 ```text
 branch:   phase-2a-at8236-chassis-encoder

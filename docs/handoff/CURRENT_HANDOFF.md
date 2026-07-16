@@ -16,7 +16,8 @@ status: complete
 起始 HEAD：4b1a3dbef3c96b1b627c90d3c10566e3c6a0ec2f
 当前 HEAD：本文件所在的 Phase 2A 阶段提交
 已验收基线：refs/tags/phase-1f-operability-diagnostics
-origin/main：e7a1ac7，正式 main 领先 2，未 push
+origin/main：4b1a3dbef3c96b1b627c90d3c10566e3c6a0ec2f / Phase 1F，已 push
+origin/phase-2a-at8236-chassis-encoder：本文件所在的 Phase 2A 阶段提交，已 push
 ```
 
 ## 2. 当前目标
