@@ -27,7 +27,8 @@ typedef enum {
     TELEMETRY_MESSAGE_PARAMETER_ACK = 2U,
     TELEMETRY_MESSAGE_HEALTH = 3U,
     TELEMETRY_MESSAGE_ACTUATOR_ACK = 4U,
-    TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U
+    TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U,
+    TELEMETRY_MESSAGE_ZDT_ACK = 6U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -105,6 +106,7 @@ typedef struct {
         telemetry_control_sample_t control;
         telemetry_parameter_ack_t parameter_ack;
         telemetry_actuator_ack_t actuator_ack;
+        telemetry_zdt_ack_t zdt_ack;
         telemetry_motor_profile_sample_t motor_profile;
         telemetry_health_sample_t health;
     } data;
@@ -254,6 +256,56 @@ static uint16_t Telemetry_EncodeActuatorAck(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeZdtAck(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_zdt_ack_t *ack = &message->data.zdt_ack;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_ZDT_ACK_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_ZDT_ACK, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], ack->sequence);
+    Telemetry_PutU32(&payload[4], (uint32_t) ack->value);
+    Telemetry_PutU32(&payload[8], ack->gen1_response_count);
+    Telemetry_PutU32(&payload[12], ack->gen2_response_count);
+    Telemetry_PutU16(&payload[16], ack->gen1_timeout_count);
+    Telemetry_PutU16(&payload[18], ack->gen2_timeout_count);
+    payload[20] = ack->operation;
+    payload[21] = ack->axis;
+    payload[22] = ack->status;
+    payload[23] = ack->flags;
+    for (uint32_t axis = 0U; axis < 2U; axis++) {
+        const telemetry_zdt_axis_snapshot_t *snapshot =
+            &ack->axis_snapshot[axis];
+        uint8_t *axis_payload = &payload[24U +
+            (axis * TELEMETRY_ZDT_AXIS_SNAPSHOT_BYTES)];
+
+        Telemetry_PutU32(&axis_payload[0], snapshot->tx_command_count);
+        Telemetry_PutU32(&axis_payload[4], snapshot->tx_query_count);
+        Telemetry_PutU32(&axis_payload[8], snapshot->invalid_response_count);
+        Telemetry_PutU32(&axis_payload[12], snapshot->position_reached_count);
+        Telemetry_PutU32(&axis_payload[16],
+            snapshot->speed_lease_expired_count);
+        Telemetry_PutU32(&axis_payload[20],
+            (uint32_t) snapshot->position_counts);
+        Telemetry_PutU32(&axis_payload[24],
+            (uint32_t) snapshot->position_millidegrees);
+        Telemetry_PutU16(&axis_payload[28],
+            (uint16_t) snapshot->speed_rpm);
+        Telemetry_PutU16(&axis_payload[30], snapshot->firmware_version);
+        Telemetry_PutU16(&axis_payload[32], snapshot->hardware_version);
+        axis_payload[34] = snapshot->motor_status_flags;
+        axis_payload[35] = snapshot->last_function;
+        axis_payload[36] = snapshot->last_reply_status;
+        axis_payload[37] = snapshot->stalled;
+        axis_payload[38] = snapshot->stall_protected;
+        axis_payload[39] = snapshot->reserved;
+    }
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static uint16_t Telemetry_EncodeMotorProfile(
     const telemetry_message_t *message, uint8_t *frame)
 {
@@ -379,10 +431,13 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeActuatorAck(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_ACTUATOR_ACK;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_MOTOR_PROFILE) {
             frame_length = Telemetry_EncodeMotorProfile(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_MOTOR_PROFILE;
+        } else {
+            frame_length = Telemetry_EncodeZdtAck(&message, frame);
+            g_telemetry_diag.last_frame_type = TELEMETRY_FRAME_TYPE_ZDT_ACK;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -512,6 +567,28 @@ bool Telemetry_PublishActuatorAck(const telemetry_actuator_ack_t *ack)
         g_telemetry_diag.actuator_ack_accepted_count++;
     } else {
         g_telemetry_diag.actuator_ack_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishZdtAck(const telemetry_zdt_ack_t *ack)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.zdt_ack_attempt_count++;
+    if ((ack == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.zdt_ack_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_ZDT_ACK;
+    message.data.zdt_ack = *ack;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.zdt_ack_accepted_count++;
+    } else {
+        g_telemetry_diag.zdt_ack_dropped_count++;
     }
     return accepted;
 }

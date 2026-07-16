@@ -17,6 +17,8 @@
 #define TELEMETRY_FRAME_TYPE_ACTUATOR_COMMAND 5U
 #define TELEMETRY_FRAME_TYPE_ACTUATOR_ACK 6U
 #define TELEMETRY_FRAME_TYPE_MOTOR_PROFILE 7U
+#define TELEMETRY_FRAME_TYPE_ZDT_COMMAND  8U
+#define TELEMETRY_FRAME_TYPE_ZDT_ACK      9U
 #define TELEMETRY_CONTROL_PAYLOAD_BYTES   40U
 #define TELEMETRY_CONTROL_FRAME_BYTES     56U
 #define TELEMETRY_PARAMETER_ACK_PAYLOAD_BYTES 16U
@@ -25,6 +27,9 @@
 #define TELEMETRY_ACTUATOR_ACK_FRAME_BYTES   32U
 #define TELEMETRY_MOTOR_PROFILE_PAYLOAD_BYTES 36U
 #define TELEMETRY_MOTOR_PROFILE_FRAME_BYTES   52U
+#define TELEMETRY_ZDT_AXIS_SNAPSHOT_BYTES     40U
+#define TELEMETRY_ZDT_ACK_PAYLOAD_BYTES      104U
+#define TELEMETRY_ZDT_ACK_FRAME_BYTES        120U
 #define TELEMETRY_HEALTH_PAYLOAD_BYTES    116U
 #define TELEMETRY_HEALTH_FRAME_BYTES      132U
 #define TELEMETRY_MAX_FRAME_BYTES         TELEMETRY_HEALTH_FRAME_BYTES
@@ -76,6 +81,39 @@ typedef struct {
 } telemetry_actuator_ack_t;
 
 typedef struct {
+    uint32_t tx_command_count;
+    uint32_t tx_query_count;
+    uint32_t invalid_response_count;
+    uint32_t position_reached_count;
+    uint32_t speed_lease_expired_count;
+    int32_t position_counts;
+    int32_t position_millidegrees;
+    int16_t speed_rpm;
+    uint16_t firmware_version;
+    uint16_t hardware_version;
+    uint8_t motor_status_flags;
+    uint8_t last_function;
+    uint8_t last_reply_status;
+    uint8_t stalled;
+    uint8_t stall_protected;
+    uint8_t reserved;
+} telemetry_zdt_axis_snapshot_t;
+
+typedef struct {
+    uint32_t sequence;
+    int32_t value;
+    uint32_t gen1_response_count;
+    uint32_t gen2_response_count;
+    uint16_t gen1_timeout_count;
+    uint16_t gen2_timeout_count;
+    uint8_t operation;
+    uint8_t axis;
+    uint8_t status;
+    uint8_t flags;
+    telemetry_zdt_axis_snapshot_t axis_snapshot[2];
+} telemetry_zdt_ack_t;
+
+typedef struct {
     uint32_t publish_attempt_count;
     uint32_t publish_accepted_count;
     uint32_t publish_dropped_count;
@@ -85,6 +123,9 @@ typedef struct {
     uint32_t actuator_ack_attempt_count;
     uint32_t actuator_ack_accepted_count;
     uint32_t actuator_ack_dropped_count;
+    uint32_t zdt_ack_attempt_count;
+    uint32_t zdt_ack_accepted_count;
+    uint32_t zdt_ack_dropped_count;
     uint32_t motor_profile_attempt_count;
     uint32_t motor_profile_accepted_count;
     uint32_t motor_profile_dropped_count;
@@ -119,6 +160,7 @@ bool Telemetry_PublishControl(const telemetry_control_sample_t *sample);
 bool Telemetry_PublishParameterAck(
     const telemetry_parameter_ack_t *ack);
 bool Telemetry_PublishActuatorAck(const telemetry_actuator_ack_t *ack);
+bool Telemetry_PublishZdtAck(const telemetry_zdt_ack_t *ack);
 bool Telemetry_PublishMotorProfile(const motor_profile_t *profile);
 bool Telemetry_PublishHealth(const system_health_snapshot_t *snapshot);
 

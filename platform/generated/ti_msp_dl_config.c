@@ -42,6 +42,7 @@
 
 DL_TimerA_backupConfig gCHASSIS_PWMBackup;
 DL_TimerG_backupConfig gLEFT_ENCODER_QEIBackup;
+DL_UART_Main_backupConfig gZDT_GEN2_UARTBackup;
 
 /*
  *  ======== SYSCFG_DL_init ========
@@ -58,13 +59,15 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_TIMEBASE_init();
     SYSCFG_DL_OLED_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
+    SYSCFG_DL_ZDT_GEN1_UART_init();
+    SYSCFG_DL_ZDT_GEN2_UART_init();
     SYSCFG_DL_DMA_init();
     SYSCFG_DL_SYSCTL_CLK_init();
     /* Ensure backup structures have no valid state */
 	gCHASSIS_PWMBackup.backupRdy 	= false;
 	gLEFT_ENCODER_QEIBackup.backupRdy 	= false;
 
-
+	gZDT_GEN2_UARTBackup.backupRdy 	= false;
 
 }
 /*
@@ -77,6 +80,7 @@ SYSCONFIG_WEAK bool SYSCFG_DL_saveConfiguration(void)
 
 	retStatus &= DL_TimerA_saveConfiguration(CHASSIS_PWM_INST, &gCHASSIS_PWMBackup);
 	retStatus &= DL_TimerG_saveConfiguration(LEFT_ENCODER_QEI_INST, &gLEFT_ENCODER_QEIBackup);
+	retStatus &= DL_UART_Main_saveConfiguration(ZDT_GEN2_UART_INST, &gZDT_GEN2_UARTBackup);
 
     return retStatus;
 }
@@ -88,6 +92,7 @@ SYSCONFIG_WEAK bool SYSCFG_DL_restoreConfiguration(void)
 
 	retStatus &= DL_TimerA_restoreConfiguration(CHASSIS_PWM_INST, &gCHASSIS_PWMBackup, false);
 	retStatus &= DL_TimerG_restoreConfiguration(LEFT_ENCODER_QEI_INST, &gLEFT_ENCODER_QEIBackup, false);
+	retStatus &= DL_UART_Main_restoreConfiguration(ZDT_GEN2_UART_INST, &gZDT_GEN2_UARTBackup);
 
     return retStatus;
 }
@@ -101,6 +106,8 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_TimerG_reset(TIMEBASE_INST);
     DL_I2C_reset(OLED_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
+    DL_UART_Main_reset(ZDT_GEN1_UART_INST);
+    DL_UART_Main_reset(ZDT_GEN2_UART_INST);
 
 
     DL_GPIO_enablePower(GPIOA);
@@ -110,6 +117,8 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_TimerG_enablePower(TIMEBASE_INST);
     DL_I2C_enablePower(OLED_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
+    DL_UART_Main_enablePower(ZDT_GEN1_UART_INST);
+    DL_UART_Main_enablePower(ZDT_GEN2_UART_INST);
 
     delay_cycles(POWER_STARTUP_DELAY);
 }
@@ -145,6 +154,14 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
         GPIO_DEBUG_UART_IOMUX_TX, GPIO_DEBUG_UART_IOMUX_TX_FUNC);
     DL_GPIO_initPeripheralInputFunction(
         GPIO_DEBUG_UART_IOMUX_RX, GPIO_DEBUG_UART_IOMUX_RX_FUNC);
+    DL_GPIO_initPeripheralOutputFunction(
+        GPIO_ZDT_GEN1_UART_IOMUX_TX, GPIO_ZDT_GEN1_UART_IOMUX_TX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(
+        GPIO_ZDT_GEN1_UART_IOMUX_RX, GPIO_ZDT_GEN1_UART_IOMUX_RX_FUNC);
+    DL_GPIO_initPeripheralOutputFunction(
+        GPIO_ZDT_GEN2_UART_IOMUX_TX, GPIO_ZDT_GEN2_UART_IOMUX_TX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(
+        GPIO_ZDT_GEN2_UART_IOMUX_RX, GPIO_ZDT_GEN2_UART_IOMUX_RX_FUNC);
 
     DL_GPIO_initDigitalOutputFeatures(GPIO_LEDS_USER_LED_1_IOMUX,
 		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN,
@@ -491,6 +508,92 @@ SYSCONFIG_WEAK void SYSCFG_DL_DEBUG_UART_init(void)
 
     DL_UART_Main_enable(DEBUG_UART_INST);
 }
+static const DL_UART_Main_ClockConfig gZDT_GEN1_UARTClockConfig = {
+    .clockSel    = DL_UART_MAIN_CLOCK_BUSCLK,
+    .divideRatio = DL_UART_MAIN_CLOCK_DIVIDE_RATIO_1
+};
+
+static const DL_UART_Main_Config gZDT_GEN1_UARTConfig = {
+    .mode        = DL_UART_MAIN_MODE_NORMAL,
+    .direction   = DL_UART_MAIN_DIRECTION_TX_RX,
+    .flowControl = DL_UART_MAIN_FLOW_CONTROL_NONE,
+    .parity      = DL_UART_MAIN_PARITY_NONE,
+    .wordLength  = DL_UART_MAIN_WORD_LENGTH_8_BITS,
+    .stopBits    = DL_UART_MAIN_STOP_BITS_ONE
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_ZDT_GEN1_UART_init(void)
+{
+    DL_UART_Main_setClockConfig(ZDT_GEN1_UART_INST, (DL_UART_Main_ClockConfig *) &gZDT_GEN1_UARTClockConfig);
+
+    DL_UART_Main_init(ZDT_GEN1_UART_INST, (DL_UART_Main_Config *) &gZDT_GEN1_UARTConfig);
+    /*
+     * Configure baud rate by setting oversampling and baud rate divisors.
+     *  Target baud rate: 115200
+     *  Actual baud rate: 115190.78
+     */
+    DL_UART_Main_setOversampling(ZDT_GEN1_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
+    DL_UART_Main_setBaudRateDivisor(ZDT_GEN1_UART_INST, ZDT_GEN1_UART_IBRD_40_MHZ_115200_BAUD, ZDT_GEN1_UART_FBRD_40_MHZ_115200_BAUD);
+
+
+    /* Configure Interrupts */
+    DL_UART_Main_enableInterrupt(ZDT_GEN1_UART_INST,
+                                 DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+                                 DL_UART_MAIN_INTERRUPT_EOT_DONE |
+                                 DL_UART_MAIN_INTERRUPT_RX);
+
+    /* Configure DMA Transmit Event */
+    DL_UART_Main_enableDMATransmitEvent(ZDT_GEN1_UART_INST);
+    /* Configure FIFOs */
+    DL_UART_Main_enableFIFOs(ZDT_GEN1_UART_INST);
+    DL_UART_Main_setRXFIFOThreshold(ZDT_GEN1_UART_INST, DL_UART_RX_FIFO_LEVEL_ONE_ENTRY);
+    DL_UART_Main_setTXFIFOThreshold(ZDT_GEN1_UART_INST, DL_UART_TX_FIFO_LEVEL_ONE_ENTRY);
+
+    DL_UART_Main_enable(ZDT_GEN1_UART_INST);
+}
+static const DL_UART_Main_ClockConfig gZDT_GEN2_UARTClockConfig = {
+    .clockSel    = DL_UART_MAIN_CLOCK_BUSCLK,
+    .divideRatio = DL_UART_MAIN_CLOCK_DIVIDE_RATIO_1
+};
+
+static const DL_UART_Main_Config gZDT_GEN2_UARTConfig = {
+    .mode        = DL_UART_MAIN_MODE_NORMAL,
+    .direction   = DL_UART_MAIN_DIRECTION_TX_RX,
+    .flowControl = DL_UART_MAIN_FLOW_CONTROL_NONE,
+    .parity      = DL_UART_MAIN_PARITY_NONE,
+    .wordLength  = DL_UART_MAIN_WORD_LENGTH_8_BITS,
+    .stopBits    = DL_UART_MAIN_STOP_BITS_ONE
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_ZDT_GEN2_UART_init(void)
+{
+    DL_UART_Main_setClockConfig(ZDT_GEN2_UART_INST, (DL_UART_Main_ClockConfig *) &gZDT_GEN2_UARTClockConfig);
+
+    DL_UART_Main_init(ZDT_GEN2_UART_INST, (DL_UART_Main_Config *) &gZDT_GEN2_UARTConfig);
+    /*
+     * Configure baud rate by setting oversampling and baud rate divisors.
+     *  Target baud rate: 115200
+     *  Actual baud rate: 115190.78
+     */
+    DL_UART_Main_setOversampling(ZDT_GEN2_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
+    DL_UART_Main_setBaudRateDivisor(ZDT_GEN2_UART_INST, ZDT_GEN2_UART_IBRD_80_MHZ_115200_BAUD, ZDT_GEN2_UART_FBRD_80_MHZ_115200_BAUD);
+
+
+    /* Configure Interrupts */
+    DL_UART_Main_enableInterrupt(ZDT_GEN2_UART_INST,
+                                 DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+                                 DL_UART_MAIN_INTERRUPT_EOT_DONE |
+                                 DL_UART_MAIN_INTERRUPT_RX);
+
+    /* Configure DMA Transmit Event */
+    DL_UART_Main_enableDMATransmitEvent(ZDT_GEN2_UART_INST);
+    /* Configure FIFOs */
+    DL_UART_Main_enableFIFOs(ZDT_GEN2_UART_INST);
+    DL_UART_Main_setRXFIFOThreshold(ZDT_GEN2_UART_INST, DL_UART_RX_FIFO_LEVEL_ONE_ENTRY);
+    DL_UART_Main_setTXFIFOThreshold(ZDT_GEN2_UART_INST, DL_UART_TX_FIFO_LEVEL_ONE_ENTRY);
+
+    DL_UART_Main_enable(ZDT_GEN2_UART_INST);
+}
 
 static const DL_DMA_Config gDEBUG_UART_TX_DMAConfig = {
     .transferMode   = DL_DMA_SINGLE_TRANSFER_MODE,
@@ -507,8 +610,40 @@ SYSCONFIG_WEAK void SYSCFG_DL_DEBUG_UART_TX_DMA_init(void)
 {
     DL_DMA_initChannel(DMA, DEBUG_UART_TX_DMA_CHAN_ID , (DL_DMA_Config *) &gDEBUG_UART_TX_DMAConfig);
 }
+static const DL_DMA_Config gZDT_GEN1_UART_TX_DMAConfig = {
+    .transferMode   = DL_DMA_SINGLE_TRANSFER_MODE,
+    .extendedMode   = DL_DMA_NORMAL_MODE,
+    .destIncrement  = DL_DMA_ADDR_UNCHANGED,
+    .srcIncrement   = DL_DMA_ADDR_INCREMENT,
+    .destWidth      = DL_DMA_WIDTH_BYTE,
+    .srcWidth       = DL_DMA_WIDTH_BYTE,
+    .trigger        = ZDT_GEN1_UART_INST_DMA_TRIGGER,
+    .triggerType    = DL_DMA_TRIGGER_TYPE_EXTERNAL,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_ZDT_GEN1_UART_TX_DMA_init(void)
+{
+    DL_DMA_initChannel(DMA, ZDT_GEN1_UART_TX_DMA_CHAN_ID , (DL_DMA_Config *) &gZDT_GEN1_UART_TX_DMAConfig);
+}
+static const DL_DMA_Config gZDT_GEN2_UART_TX_DMAConfig = {
+    .transferMode   = DL_DMA_SINGLE_TRANSFER_MODE,
+    .extendedMode   = DL_DMA_NORMAL_MODE,
+    .destIncrement  = DL_DMA_ADDR_UNCHANGED,
+    .srcIncrement   = DL_DMA_ADDR_INCREMENT,
+    .destWidth      = DL_DMA_WIDTH_BYTE,
+    .srcWidth       = DL_DMA_WIDTH_BYTE,
+    .trigger        = ZDT_GEN2_UART_INST_DMA_TRIGGER,
+    .triggerType    = DL_DMA_TRIGGER_TYPE_EXTERNAL,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_ZDT_GEN2_UART_TX_DMA_init(void)
+{
+    DL_DMA_initChannel(DMA, ZDT_GEN2_UART_TX_DMA_CHAN_ID , (DL_DMA_Config *) &gZDT_GEN2_UART_TX_DMAConfig);
+}
 SYSCONFIG_WEAK void SYSCFG_DL_DMA_init(void){
     SYSCFG_DL_DEBUG_UART_TX_DMA_init();
+    SYSCFG_DL_ZDT_GEN1_UART_TX_DMA_init();
+    SYSCFG_DL_ZDT_GEN2_UART_TX_DMA_init();
 }
 
 

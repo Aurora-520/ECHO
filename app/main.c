@@ -14,6 +14,7 @@
 #include "system_health.h"
 #include "task.h"
 #include "ti_msp_dl_config.h"
+#include "zdt_stepper.h"
 
 int main(void)
 {
@@ -23,6 +24,7 @@ int main(void)
     ChassisActuator_Init();
     BSP_Time_Init();
     BSP_Encoder_Init();
+    ZdtStepper_Init();
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();

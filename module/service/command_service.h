@@ -14,6 +14,8 @@ typedef struct {
     uint32_t overflow_reset_count;
     uint32_t resync_count;
     uint32_t actuator_ack_drop_count;
+    uint32_t zdt_frame_count;
+    uint32_t zdt_ack_drop_count;
     uint32_t processed_byte_count;
     uint8_t last_frame_type;
     uint8_t initialized;

@@ -2,7 +2,7 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-16T18:38:00+08:00
+updated_at: 2026-07-16T20:00:00+08:00
 updated_by: Codex
 status: complete
 ```
@@ -11,10 +11,10 @@ status: complete
 
 ```text
 唯一正式工程：E:\ECHO
-开发 worktree：C:\Users\Auror\ECHO-phase2a-work
-当前 branch：refs/heads/phase-2a-at8236-chassis-encoder
-起始 HEAD：4b1a3dbef3c96b1b627c90d3c10566e3c6a0ec2f
-当前 HEAD：本文件所在的 Phase 2A 阶段提交
+开发 worktree：C:\Users\Auror\ECHO-zdt-x42s-work
+当前 branch：refs/heads/codex/zdt-dual-uart-stepper
+起始 HEAD：494ea191ec4becdbeb9af2cfe897d61f0cd544b2
+当前 HEAD：494ea191ec4becdbeb9af2cfe897d61f0cd544b2，备用步进改动尚未提交
 已验收基线：refs/tags/phase-1f-operability-diagnostics
 origin/main：4b1a3dbef3c96b1b627c90d3c10566e3c6a0ec2f / Phase 1F，已 push
 origin/phase-2a-at8236-chassis-encoder：本文件所在的 Phase 2A 阶段提交，已 push
@@ -353,3 +353,26 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
 - 松手后 100 ms 达峰值 `67.384 rpm`，超调 `12.31%`；820 ms 内进入并持续保持目标 ±3%，PWM 200 ms 内回到基线 ±5 permille。相比负载相近的 v12，超调由 `17.60%` 降至 `12.31%`。
 - 最终静止收尾通过：512 Control / 5 Health / 5 Profile，100/1/1 Hz；CRC/gap/deadline/drop/I2C/active/sticky/encoder late 全零，`ActuatorOutputPermitted=0`。
 - 精确下一步：轮组落地后复测电流、温升、直线同步、带载抗扰和 120 rpm 上限；架空 PI 调试不再继续为手压工况加大控制强度。
+
+## 16. 2026-07-16 张大头备用后端最新状态
+
+本节优先于前文把 X42S 列为云台主选的历史描述。
+
+- 串口无刷电机是云台主执行器；两台张大头仅作备用，不接入当前主云台控制链。
+- 两台张大头均为 Emm 固件 TTL 串口直连。第一代为 UART2 PB15/PB16 + DMA_CH1，第二代为
+  UART3 PB2/PB3 + DMA_CH2；UART1 PA8/PA9 调试链保持不变。
+- `zdt_protocol` 封装 Emm 帧和物理加速度换算，`zdt_stepper` 封装选择门禁、非阻塞轮询、
+  20 ms 限频、相同目标去重、第一代位置忙拒绝和退出时停止/失能。
+- 默认 `backend_selected=0`，当前应用没有调用备用选择接口，因此开机不查询、不使能、不运动。
+- 2026-07-17 用户在场完成第二代实机验收：地址 `0x01`、115200 8N1、连续回包正常；
+  `+15 deg` 实测 `+15.007 deg`，返回基准误差 `0.044 deg`，正反 30 rpm 反馈和停止均通过。
+- 速度模式现有 1.5 s 板端租约；故意省略 Stop 的测试能够自动停止。最终第二代未使能、
+  未运动、速度 0、无效响应/第二代超时/堵转均为 0，备用后端已退出。
+- 最新 App 为 0 Error / 0 Warning；75,936 字节 Flash 回读 SHA-256
+  `4615539E2032A871FDE4F126A3595045FC5E3F38934FA19195E3EB848DBF31F4`。
+- 第一代仍须由用户在场确认接线、地址、细分、波特率、机构安全范围后单独实机验收；
+  第二代带载电流、温升、堵转保护和机械限位也仍待验证。
+- 本次文件位于 `C:\Users\Auror\ECHO-zdt-x42s-work`，在 `codex/zdt-dual-uart-stepper`
+  分支提交；正式 `E:\ECHO` 工作目录未直接修改。
+- 详细设计与验收门禁见 `docs/hardware/ZDT_BACKUP_STEPPER.md` 和
+  `docs/worklogs/2026-07-16_zdt_backup_stepper.md`。

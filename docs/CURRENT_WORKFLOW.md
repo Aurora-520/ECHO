@@ -10,7 +10,8 @@
 - 文档整理来源：`C:\Users\Auror\ECHO-docs-staging-20260715`（已逐文件语义选入）
 - Phase 2A 分支：`phase-2a-at8236-chassis-encoder`
 - Phase 2A 工作树：`C:\Users\Auror\ECHO-phase2a-work`
-- Phase 2A 从正式 Phase 1F 基线 `4b1a3db` 创建，当前尚未接入或驱动电机。
+- Phase 2A 已完成并推送；张大头备用后端当前开发工作树为
+  `C:\Users\Auror\ECHO-zdt-x42s-work`，分支为 `codex/zdt-dual-uart-stepper`。
 - 不新建仓库或复制工程来代替 `E:\ECHO`。
 
 ## 2. 长期阶段顺序
@@ -21,7 +22,7 @@
 Phase 1F 赛场可操作性、健康诊断、参数/UI 和持久化门禁
 -> Phase 2A AT8236、底盘电机和 GMR 编码器
 -> Phase 2B 底盘 ICM42688、速度/航向/位置控制
--> Phase 2C X42S/串口无刷云台、云台 IMU 和控制频率验证
+-> Phase 2C 串口无刷主云台、张大头备用后端、云台 IMU 和控制频率验证
 -> Phase 2D 树莓派 4B、单目相机/MaxiCam 通信
 -> Phase 3 组合动作、任务状态机、OLED 任务菜单
 -> Phase 4 整车压力测试、故障演练和赛场验收
