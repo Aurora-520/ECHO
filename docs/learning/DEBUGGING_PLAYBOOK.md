@@ -106,7 +106,7 @@
 | P2A-03 | 双编码器并发 | passed（无动力） | 左 x4/右 x1 必须按轮配置，未接输入会浮空 |
 | P2A-04 | AT8236 逻辑 PWM 安全链 | passed（VM 断电） | SWD RAM 写会重启，执行器命令改用 UART 一次性安全帧 |
 | P2A-05 | MG370/513X Motor Profile | build passed | 单一编译宏；未知关键参数必须锁定输出或编译失败 |
-| IMU-S01 | MPU6050/MPU6500-compatible spike | in progress | WHO_AM_I=0x70；静止数据正常，动态/恢复/长测未闭环 |
+| IMU-S01 | MPU6050/MPU6500-compatible spike | bench_passed / pairwise_passed | 27000 秒静态长测通过；Motion/物理恢复/示波器仍 deferred |
 
 ## 5. 已补录模块记录
 
@@ -315,8 +315,8 @@ phase: isolated spike before Phase 2B
 status: bench_passed
 integration_status: pairwise_passed
 record_kind: normal
-last_verified_at: 2026-07-15T23:43:02+08:00
-firmware_commit: ff207b5
+last_verified_at: 2026-07-16T11:14:32+08:00
+firmware_commit: d39f7e2
 firmware_build_id: 0x02F0
 hardware_revision: two modules, WHO_AM_I 0x70 and 0x68
 owner: ServiceTask / ImuService
@@ -343,15 +343,27 @@ owner: ServiceTask / ImuService
 最终 active=0、sticky 保留 IMU offline，CRC/gap/deadline 全 0。
 
 **共享总线问题**：OLED + IMU + UART 曾复现 Control 帧尾被截断。DMA_DONE 后等待 EOT、UART DMA
-统一由 ServiceTask 启动、IMU 短优先 quiet window 和 OLED backlog 后优先到期 IMU，已使 600 秒
-联合运行保持 CRC/gap/I2C/deadline 全 0。
+统一由 ServiceTask 启动、IMU 短优先 quiet window 和 OLED backlog 后优先到期 IMU。2026-07-16
+的 27000 秒静态 soak 中，30 个 900 秒段保持 CRC/gap/duplicate/out-of-order/I2C/deadline 全 0，
+OLED 全程 online；这关闭当前台架连续运行门禁，但不能替代正式线束信号完整性验证。
 
-**当前证据边界**：第一块修复后 120 秒为 `12195/122` Control/Health，100/1 Hz，全部门禁为 0。
-三轴 Motion、温度时间序列和物理断开恢复仍未完成；面包板只能四针整体拔插，物理故障测试等待
+**启动瞬态排查**：初始两次 20 秒检查分别得到 `I2C error=270` 和 `61`，并出现 offline/未 READY；
+没有立即重复 reset 掩盖，而是保留原始目录。随后 30 秒、60 秒、五次独立 reset、15 分钟基线和
+27000 秒 soak 都保持 I2C error 0。可复用结论是：启动期 I2C 失败必须保留 reset reason、active/
+sticky、READY 帧数和原始字节，再用多次 reset 与长测判断是否持续；在没有示波器或物理断线 A/B
+前，不把一次瞬态武断归因于上拉、模块损坏或软件竞态。
+
+**无人值守分段方法**：长测按 900 秒段执行，每段独立保存 raw/CSV/JSON，并在段末原子更新
+progress；首段失败立即停止。最终必须同时检查计划段数、每段 exit code/Passed、累计帧数、
+CRC/sequence/deadline/I2C/Health、stack/heap/ring/quiet，而不能只看外层进程仍在运行。
+
+**当前证据边界**：第一块修复后 120 秒为 `12195/122` Control/Health；新增 27000 秒静态 soak 为
+`2743306/27432`，全部 Control READY，全部通信、实时性、I2C 和 Health 门禁为 0。三轴 Motion、
+温度时间序列、示波器上升沿和物理断开恢复仍未完成；面包板只能四针整体拔插，物理故障测试等待
 独立插头、跳帽或串联开关。正式底盘 IMU 仍为 ICM42688，本 spike 不能替代 Phase 2B 验收。
 
-**暂停状态**：用户决定先恢复 Phase 2A 电机工作。算法补偿、Motion、六面标定和 ICM42688
-均 deferred；恢复时重新采集标准化数据，不能直接用临时面包板统计冻结正式参数。
+**2026-07-16 更新**：用户要求稳定性收尾后恢复独立算法研究。算法补偿、Motion、六面标定和
+ICM42688 仍未验收；恢复时重新采集标准化数据，不能直接用临时面包板统计冻结正式参数。
 
 ## 6. 后续模块新增条目的最低内容
 
@@ -392,3 +404,16 @@ Phase 文档/worklog 为准，并在条目中增加勘误：
 - 本 spike 的实时交接和当前任务已记录的串口静止统计
 
 Phase 2A 与 MPU 仍在进行中，其条目只描述已经达到的证据层级，不能替代最终 Phase 文档。
+
+## 8. 无人值守串口长稳规则
+
+1. 一个硬件组合只能有一个串口 owner；长稳 runner 运行时禁止第二份 COM 采集、OpenOCD 或参数写入。
+2. 长稳按有界段保存 raw/CSV/JSON 和 field-check 日志，进度与最终结果使用临时文件加原子替换。
+3. 重新打开串口可能从帧中间接入。少量 `SyncSkippedBytes` 只有在 CRC、sequence gap、duplicate、
+   out-of-order 同时为 0 时才能解释为捕获边界；不能静默删掉，也不能直接当链路故障。
+4. 32 位微秒时间戳约每 4294.967 秒回绕。判定必须使用模运算，并同时检查 sequence、period、
+   jitter 和 deadline；不能用 `last < first` 单独判失败。
+5. 长稳后必须独立 `reset run` 并做短清洁复核，确认结束状态可重复，而不是依赖热稳态。
+6. 启动异常即使后续未复现也必须保留首次现场。本次 READY `0/54`、I2C `270/61`、OLED offline
+   和 `0x00009800` 只能记为未定位的启动/共享 I2C 瞬态，正式硬件仍需查上拉、去耦、共地和上升沿。
+7. 链路稳定和传感器精度是两个结论。本轮没有同步温度，因此不能从 27000 秒数据声称温补完成。

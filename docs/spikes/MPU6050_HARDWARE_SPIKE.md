@@ -1,15 +1,16 @@
 # MPU6050 / MPU6500-compatible 备用 IMU 硬件 Spike
 
-状态：`paused / bench_passed / pairwise_passed`。双 Profile、invalid 快照修复、全量构建/烧录、
-两块 600 秒静止诊断、OLED 共享总线、软件故障恢复和 `WHO_AM_I=0x70` 的 120 秒联合回归通过；
-三轴转动、算法补偿、六面标定、物理断开恢复与 ICM42688 均 deferred。
+状态：`bench_passed / pairwise_passed`。双 Profile、invalid 快照修复、
+全量构建/烧录、两块 600 秒静止诊断、OLED 共享总线、软件故障恢复、`WHO_AM_I=0x70` 的
+120 秒联合回归，以及 2026-07-16 的 27000 秒无人值守静态 soak 通过；三轴转动、算法补偿、
+六面标定、物理断开恢复、示波器上升沿与 ICM42688 均 deferred。
 
 本工作只验证备用 MPU6050 的总线、采样、静止偏置和低延迟数据链。它不是正式 Phase 2B，
 也不改变正式底盘 IMU 仍为 ICM42688 的决定。验证后的接口只能在 Phase 2A 验收后语义移植，
 不能直接把本分支当作正式后续阶段合入。
 
-用户已决定先恢复 Phase 2A 电机工作。本 spike 以独立 GitHub checkpoint 暂停，不创建阶段 tag，
-不合入正式 main；恢复时重新采集标准化数据，不直接用本次临时面包板数据冻结补偿参数。
+用户要求完成本次稳定性收尾后恢复独立算法工作树。本 spike 不创建阶段 tag、不合入正式 main；
+算法阶段必须重新采集标准化数据，不直接用本次临时面包板数据冻结补偿参数。
 checkpoint `ff207b5` 已推送到 `origin/codex/mpu6050-hardware-spike`。
 
 ## 1. 接线
@@ -22,8 +23,8 @@ checkpoint `ff207b5` 已推送到 `origin/codex/mpu6050-hardware-spike`。
 | SDA | PA0 / I2C0 SDA | 与 OLED 共用硬件 I2C0 |
 
 - 当前地址固定为 `0x68`，对应 AD0 为低。已实测两块模块：第一块 `WHO_AM_I=0x70`，按
-  MPU6500-compatible 识别；第二块 `WHO_AM_I=0x68`，按标准 MPU6050 识别。当前接线的是
-  第二块标准 MPU6050。
+  MPU6500-compatible 识别；第二块 `WHO_AM_I=0x68`，按标准 MPU6050 识别。2026-07-16
+  无人值守稳定性测试接线为第一块 `WHO_AM_I=0x70`。
 - `INT`、`XDA`、`XCL` 本次不接。正式闭环 IMU 应优先使用数据就绪中断验证采样时刻。
 - 天猛星 `H8` 是 SPI-LCD 接口，本 spike 不使用 `PB8/PB9`，不会占用 Phase 2A 电机引脚。
 - OLED 为 `0x3C/0x3D`，MPU6050 为 `0x68`，地址不冲突；并联上拉强度仍需示波器或上升沿实测。
@@ -135,6 +136,17 @@ flags 报告 MPU6050、数据有效、校准中和 READY。完整原始值、偏
 | 软件故障链路 | 3052/31 Control/Health，100/1 Hz，CRC/gap/out-of-order/deadline 0，最终 active 0 |
 | `0x70` 最终 120 秒回归 | 主机 122.587 s，12195/122 Control/Health，全部门禁为 0 |
 | `0x70` 120 秒 X/Y/Z | mean `-0.004778/-0.000418/0.004142 dps`；stddev `0.029737/0.030829/0.033293 dps` |
+| 2026-07-16 full rebuild | FreeRTOS/App 0 Error / 0 Warning；HEX SHA-256 未变化 |
+| 初始 I2C 瞬态 | 两次 20 秒检查 `I2C error=270/61`；保留现场，后续 30/60 秒恢复全 0 |
+| 五次 reset 回归 | 五次 20 秒 Static 均通过；Control `2035-2036`、Health `20-21`，全部门禁为 0 |
+| 协议压力后复核 | 30 秒 `3053/31`，`ParameterErrorCount=7`、`ApplySequence=53`，链路/Health 全 0 |
+| 15 分钟基线 | `91453/915` Control/Health，全部 Control READY，全部门禁为 0 |
+| 27000 秒无人值守 soak | 30 个 900 秒段，`2743306/27432` Control/Health，全部 Control READY，全部门禁为 0 |
+| soak 资源低水位 | stack 94 words、heap 3056 B、ring 464 B、quiet max 38777 us，OLED online |
+| reset 后最终 20 秒 | `2032/20` Control/Health，100/1 Hz，参数 sequence/error 0/0，全部门禁为 0 |
+| 11:14 再次 reset 后 20 秒 | `2038/20`，全部 READY，所有门禁 0，X/Y/Z mean `-0.001662/0.006787/-0.002731 dps` |
+| 30 段加权 X/Y/Z | mean `-0.056074762/0.013271149/0.025727453 dps`；stddev `0.047037499/0.037879724/0.034651981 dps` |
+| 30 段加速度模长 | `1.018024726 +/- 0.003618586 g` |
 | 物理断开/恢复 | 面包板只能四针整体拔插，等待独立插头/跳帽/串联开关后执行 |
 | 转动方向 | Motion 和轴方向冻结仍未执行 |
 
@@ -173,3 +185,28 @@ Z 均值 `-0.002115 dps` 对应约 `-1.3 deg/10 min`，且首末 60 秒 Z 均值
 `+0.000271 dps`。不过第二块加速度模长约 `1.083 g`，正式姿态使用前仍需六面标定。
 正式航向闭环不能只依赖六轴陀螺积分，需要温度补偿、轮速/视觉/其他航向观测中的至少一种
 长期校正。
+
+## 9. 2026-07-16 无人值守稳定性结论
+
+证据根目录为
+`C:\Users\Auror\AppData\Local\Temp\echo-unattended-soak-20260716-overnight`。计划任务先运行
+25200 秒主体并生成 28 个通过段；为满足 27000 秒目标，在不复位 MCU 的情况下追加独立 1800 秒、
+2 个通过段。两部分累计 `2743306` 个 Control 和 `27432` 个 Health，所有 Control 均 valid+READY，
+CRC、sequence gap、duplicate、out-of-order、deadline、I2C error、Health active/sticky 均为 0。
+
+两次 runner 主机墙钟合计 `27573.452 s`。30 段跨段 sequence 与 uptime 单调，段 2、7、11、16、
+21、25 和补充段 2 共 7 次 `uint32_t` 微秒时间戳回绕均保持周期连续。8 个段在重新打开串口时
+跳过总计 212 B 前导非同步字节，单次最多 48 B；没有伴随 CRC 或 sequence gap，属于捕获边界。
+
+加权 X/Y/Z mean 为 `-0.056074762/0.013271149/0.025727453 dps`，总体标准差为
+`0.047037499/0.037879724/0.034651981 dps`；加速度模长
+`1.018024726 +/- 0.003618586 g`。这些数据没有同步温度和原始六轴，只能支持候选慢漂判断，
+不能拟合温补、六面标定或姿态估计器。
+
+初始 I2C 瞬态的失败目录为 `echo-mpu6050-20260716-015609` 和
+`echo-mpu6050-20260716-015731`；后续恢复、五次 reset、协议压力后复核和 15 分钟基线路径见
+`docs/worklogs/2026-07-16_mpu6050_unattended_stability.md`。长测通过只能关闭当前接线、当前固件、
+静止条件下的连续运行门禁；Motion、真实物理断开/恢复和示波器上升沿仍为明确 deferred。
+
+六轴 IMU 的 yaw 在没有磁力计、轮速、视觉或其他外部航向观测时不可长期观测；四元数、
+Mahony/Madgwick 或 KF/EKF 不能单独消除该物理限制。

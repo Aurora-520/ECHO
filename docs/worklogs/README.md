@@ -109,3 +109,8 @@ YYYY-MM-DD_<short-topic>.md
 5. 将 `not run`、`deferred` 和遗留风险保留在条目中。
 
 未更新调试手册和集成手册时，worklog 完成不等于小模块完成或可集成完成。
+
+## 6. 最近记录
+
+- [`2026-07-16_mpu6050_unattended_stability.md`](2026-07-16_mpu6050_unattended_stability.md)：
+  MPU6050 全量构建、五次 reset、协议压力、15 分钟基线、27000 秒无人值守静态 soak 与最终复核。
