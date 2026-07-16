@@ -10,7 +10,7 @@
 > 采集的温度、多姿态、三轴转动、六面标定与外部航向参考数据。本 spike 只保留独立证据，
 > 不合入正式 main，也不改变正式 Phase 2A/ICM42688 决策；用户已明确授权把完成的稳定性
 > checkpoint 推送到独立 GitHub 分支。
-> checkpoint `ff207b5` 已推送到 `origin/codex/mpu6050-hardware-spike`，未创建阶段 tag。
+> 完成的稳定性 checkpoint 已推送到 `origin/codex/mpu6050-hardware-spike`，未创建阶段 tag。
 
 最后核对日期：2026-07-16（Asia/Shanghai）
 
@@ -22,10 +22,10 @@
 - 最近已验收固件：本文件所在的 Phase 1F 提交
 - 阶段标签：`phase-1f-operability-diagnostics`
 - 基线父提交：`cb7c4c32783cf7eeeabbbdec4a193aee99077159` / `phase-1e-oled-ui`
-- 远端 `origin/main`：`e7a1ac7` / Phase 1D，尚未 push
+- 远端 `origin/main`：`4b1a3db` / Phase 1F，已 push
 
-Phase 1F 合入正式 main 后，main 比 origin/main 领先 Phase 1E 与 Phase 1F 两个阶段提交。
-不得自动 push。下一阶段只能从正式已合入的 Phase 1F 标签创建独立 Phase 2A 分支/worktree。
+Phase 1E 与 Phase 1F 已合入正式 main 并推送至 GitHub。正式 Phase 2A 与 MPU6050 硬件 spike
+继续保持独立分支/worktree；本 spike 的完成成果只发布到隔离分支，不合入正式 main。
 
 ## 2. 必须保留的用户状态
 
