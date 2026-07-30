@@ -27,6 +27,7 @@ static uint32_t s_last_vision_update_sequence;
 static uint8_t s_motor_center_valid;
 static uint8_t s_center_hold_staged;
 static uint8_t s_enable_requested;
+static uint8_t s_positive_braking_active;
 static int32_t s_completed_hold_output_millidegrees;
 
 volatile ball_balance_diagnostics_t g_ball_balance_diag;
@@ -206,6 +207,7 @@ static void BallBalance_StartH3(uint32_t now_us)
     s_motor_center_valid = 0U;
     s_center_hold_staged = 0U;
     s_enable_requested = 0U;
+    s_positive_braking_active = 0U;
     s_completed_hold_output_millidegrees = 0;
     g_ball_balance_diag.snapshot.fault = BALL_BALANCE_FAULT_NONE;
     g_ball_balance_diag.snapshot.target_position_decimm =
@@ -260,6 +262,7 @@ static void BallBalance_UpdatePhase(const ball_vision_snapshot_t *vision,
             -H_BALL_H3_POSITIVE_VELOCITY_MM_S) {
         g_ball_balance_diag.snapshot.target_position_decimm =
             H_BALL_H3_NEGATIVE_TARGET_DECIMM;
+        s_positive_braking_active = 0U;
         BallPositionController_BeginReversal(&s_controller);
         s_settle_start_us = 0U;
         BallBalance_SetState(BALL_BALANCE_STATE_MOVE_NEGATIVE, now_us);
@@ -289,6 +292,8 @@ static void BallBalance_UpdatePhase(const ball_vision_snapshot_t *vision,
                 g_ball_balance_diag.snapshot.
                     control_output_millidegrees =
                         s_completed_hold_output_millidegrees;
+                g_ball_balance_diag.snapshot.elapsed_ms =
+                    (uint32_t) (now_us - s_run_start_us) / 1000U;
                 g_ball_balance_diag.complete_count++;
                 BallBalance_SetMissionStatus(
                     BALL_BALANCE_MISSION_COMPLETE);
@@ -330,11 +335,51 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
                     (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE) {
                 output = s_completed_hold_output_millidegrees;
             } else {
-                output = BallPositionController_Update(&s_controller,
-                    (float) g_ball_balance_diag.snapshot.
-                        target_position_decimm * 0.1f,
-                    (float) vision.position_decimm * 0.1f,
-                    (float) vision.velocity_mm_s, dt_s);
+                if (g_ball_balance_diag.snapshot.state ==
+                        (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE &&
+                    vision.position_decimm >=
+                        H_BALL_H3_POSITIVE_BRAKE_DECIMM) {
+                    s_positive_braking_active = 1U;
+                }
+                if (g_ball_balance_diag.snapshot.state ==
+                        (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE &&
+                    s_positive_braking_active != 0U) {
+                    float remaining_mm = (float) (
+                        H_BALL_H3_POSITIVE_TARGET_DECIMM -
+                        vision.position_decimm) * 0.1f;
+                    float brake_zone_mm = (float) (
+                        H_BALL_H3_POSITIVE_TARGET_DECIMM -
+                        H_BALL_H3_POSITIVE_BRAKE_DECIMM) * 0.1f;
+                    float target_velocity_mm_s;
+
+                    if (remaining_mm >= 0.0f) {
+                        target_velocity_mm_s =
+                            H_BALL_H3_POSITIVE_BRAKE_ENTRY_VELOCITY_MM_S *
+                            remaining_mm / brake_zone_mm;
+                        if (target_velocity_mm_s >
+                                H_BALL_H3_POSITIVE_BRAKE_ENTRY_VELOCITY_MM_S) {
+                            target_velocity_mm_s =
+                                H_BALL_H3_POSITIVE_BRAKE_ENTRY_VELOCITY_MM_S;
+                        }
+                    } else {
+                        target_velocity_mm_s =
+                            H_BALL_NEGATIVE_POSITION_VELOCITY_GAIN_PER_S *
+                            remaining_mm;
+                    }
+                    output = BallPositionController_UpdateProfiled(
+                        &s_controller,
+                        (float) H_BALL_H3_POSITIVE_TARGET_DECIMM * 0.1f,
+                        target_velocity_mm_s,
+                        H_BALL_H3_POSITIVE_BRAKE_GAIN_MDEG_PER_MM_S,
+                        (float) vision.position_decimm * 0.1f,
+                        (float) vision.velocity_mm_s, dt_s);
+                } else {
+                    output = BallPositionController_Update(&s_controller,
+                        (float) g_ball_balance_diag.snapshot.
+                            target_position_decimm * 0.1f,
+                        (float) vision.position_decimm * 0.1f,
+                        (float) vision.velocity_mm_s, dt_s);
+                }
             }
             g_ball_balance_diag.snapshot.control_output_millidegrees = output;
             g_ball_balance_diag.snapshot.saturated = s_controller.saturated;
@@ -475,8 +520,9 @@ void BallBalanceService_Service(uint32_t now_us)
         motor->position_millidegrees;
     g_ball_balance_diag.snapshot.motor_error_millidegrees =
         motor->position_error_millidegrees;
-    if (state != (uint8_t) BALL_BALANCE_STATE_IDLE &&
-        state != (uint8_t) BALL_BALANCE_STATE_FAULT) {
+    if (state == (uint8_t) BALL_BALANCE_STATE_STARTING ||
+        state == (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE ||
+        state == (uint8_t) BALL_BALANCE_STATE_MOVE_NEGATIVE) {
         g_ball_balance_diag.snapshot.elapsed_ms =
             (uint32_t) (now_us - s_run_start_us) / 1000U;
     }

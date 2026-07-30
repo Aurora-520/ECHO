@@ -2,10 +2,37 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-30T14:25:58+08:00
+updated_at: 2026-07-31T00:24:45+08:00
 updated_by: Codex
-status: camera_rack_line_damping_h4_full_lap_accepted
+status: h3_terminal_braking_reverse_stability_accepted
 ```
+
+## 当前任务：H3 正向制动、反向防停滞与计时冻结
+
+- 正向位置目标保持 `+50 mm`，`+39 mm` 仅锁存进入末端制动区；期望速度在
+  `39 -> 50 mm` 内从 20 mm/s 连续降到 0，末端速度反馈增益为 300 mdeg/(mm/s)。
+  没有把 39 mm 当作到达点。
+- 正反到达容差为 10 mm；最终 `-50 mm` 还要求绝对速度不超过 15 mm/s 并连续稳定
+  150 ms。完成瞬间锁存 `elapsed_ms`，`HOLD_COMPLETE` 不再继续累计时间。
+- 反向位置速度增益从 1.6 提到 2.6，避免接近 `-39 mm` 时倾角过早回平；没有新增
+  起滚角学习、单次记录或掉电保存。慢速起滚用连续两帧、同向位移 1 mm、原始速度
+  8 mm/s 联合识别，识别后立即释放搜角积分。
+- UART1 RX 增加启动期恢复：上电 500 ms 仍为 0 字节时只重启 UART1 RX；收到首帧后
+  保留原 80 ms 断流恢复。UART0/UART2/UART3 未修改。
+- 最终实测 `h3_reverse_gain26_run2_20260731-002249`：起点 -9.8 mm，正向 46.9 mm、
+  18 mm/s 切换；反向经过 -39.2 mm 时仍为 -49 mm/s，未停滞；最终 -47.7 mm、0 mm/s，
+  5.519 s 完成，后续计时始终冻结在 5.519 s，fault 0、vision valid。
+- 当前最优版本为换向制动力 `260 mdeg/(mm/s)` 的固件，保留 `tests/artifacts/h3_five_run_search35_20260731-010825`
+  的五次复测作为基线：四次完整过程完成时间 5.110--5.357 s，正向峰值约
+  +47.2--+54.4 mm，终点首次锁存约 -42.7-- -54.2 mm，均自动完成且 fault 0。
+  后续干净窗口第二次完整运行在 5.079 s 完成、终点 -53.9 mm；相机约 58 Hz，控制 deadline 0。
+- App 与控制器主机测试通过，App `0 Error / 0 Warning`；CMSIS-DAP `2e4c7219`
+  以 250 kHz 烧录成功。当前迭代未做逐字节 Flash 回读，未提交、未推送。
+- 重新安装后每次任务仍读取张大头当前绝对角作为本次 `theta0`，控制只使用相对倾角；
+  不依赖上次安装角。机械方向必须不反，任务开始时水管需水平，所需倾角必须在 +/-25 deg
+  控制范围内。改变连杆比例、摩擦或极性后仍需至少一次实测复核。
+- 用户已有 `ECHO.uvmpw` 与 `freertos/keil/freertos_ECHO.uvprojx` 继续保留且不得暂存。
+  详细记录见 `docs/worklogs/2026-07-31_h3_terminal_braking_reverse_stability.md`。
 
 ## 当前任务：相机架装车后的循迹复测与 H4 整圈
 

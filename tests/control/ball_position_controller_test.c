@@ -50,7 +50,7 @@ int main(void)
         &controller, -50.0f, -25.0f, 0.0f, 0.02f);
     assert(controller.target_velocity_mm_s == -55.0f);
 
-    /* Three directional samples plus displacement reject single-frame noise. */
+    /* Two directional samples plus displacement reject single-frame noise. */
     BallPositionController_Reset(&controller);
     (void) BallPositionController_Update(
         &controller, 50.0f, 0.0f, 0.0f, 0.02f);
@@ -58,9 +58,55 @@ int main(void)
         &controller, 50.0f, 2.0f, 20.0f, 0.02f);
     (void) BallPositionController_Update(
         &controller, 50.0f, 3.0f, 20.0f, 0.02f);
-    (void) BallPositionController_Update(
-        &controller, 50.0f, 4.0f, 20.0f, 0.02f);
     assert(controller.motion_detected != 0U);
+    assert(controller.integral_millidegrees == 0.0f);
+
+    /* The terminal profile keeps the 50 mm target while braking early. */
+    BallPositionController_Reset(&controller);
+    controller.motion_detected = 1U;
+    assert(BallPositionController_UpdateProfiled(&controller,
+        50.0f, 20.0f, 300.0f, 40.0f, 67.0f, 0.02f) == -1000);
+    assert(controller.position_error_mm == 10.0f);
+    assert(controller.target_velocity_mm_s == 20.0f);
+    assert(controller.proportional_millidegrees == -14100.0f);
+
+    /* Slow real motion below the control deadband must end angle search. */
+    {
+        ball_position_controller_config_t slow_motion_config = config;
+        ball_position_controller_t slow_motion_controller;
+
+        slow_motion_config.motion_detection_velocity_mm_s = 8.0f;
+        slow_motion_config.motion_detection_displacement_mm = 1.0f;
+        assert(BallPositionController_Init(&slow_motion_controller,
+            &slow_motion_config));
+        (void) BallPositionController_Update(&slow_motion_controller,
+            -50.0f, 0.0f, 0.0f, 0.02f);
+        (void) BallPositionController_Update(&slow_motion_controller,
+            -50.0f, -1.1f, -9.0f, 0.02f);
+        (void) BallPositionController_Update(&slow_motion_controller,
+            -50.0f, -1.5f, -9.0f, 0.02f);
+        assert(slow_motion_controller.filtered_velocity_mm_s == 0.0f);
+        assert(slow_motion_controller.motion_detected != 0U);
+        assert(slow_motion_controller.integral_millidegrees == 0.0f);
+    }
+
+    /* A qualified final-band error must not re-arm high-rate search. */
+    {
+        ball_position_controller_config_t final_band_config = config;
+        ball_position_controller_t final_band_controller;
+        uint8_t index;
+
+        final_band_config.stall_reacquire_position_error_mm = 7.0f;
+        final_band_config.stall_reacquire_confirm_samples = 12U;
+        assert(BallPositionController_Init(&final_band_controller,
+            &final_band_config));
+        final_band_controller.motion_detected = 1U;
+        for (index = 0U; index < 40U; index++) {
+            (void) BallPositionController_Update(&final_band_controller,
+                0.0f, -6.0f, 0.0f, 0.02f);
+        }
+        assert(final_band_controller.motion_detected != 0U);
+    }
 
     /* A stationary residual error must re-arm learned-angle search. */
     controller.output_millidegrees = 1000.0f;

@@ -53,6 +53,10 @@ void BallPositionController_BeginReversal(
     ball_position_controller_t *controller);
 int32_t BallPositionController_Update(ball_position_controller_t *controller,
     float target_mm, float position_mm, float velocity_mm_s, float dt_s);
+int32_t BallPositionController_UpdateProfiled(
+    ball_position_controller_t *controller, float target_mm,
+    float target_velocity_mm_s, float velocity_feedback_gain,
+    float position_mm, float velocity_mm_s, float dt_s);
 int32_t BallPositionController_UpdateHold(
     ball_position_controller_t *controller, float target_mm,
     float position_mm, float velocity_mm_s, float dt_s);

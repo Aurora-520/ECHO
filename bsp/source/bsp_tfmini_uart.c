@@ -73,6 +73,32 @@ void BSP_TfminiUart_Init(void)
     NVIC_EnableIRQ(LIDAR_UART_INST_INT_IRQN);
 }
 
+void BSP_TfminiUart_RecoverRx(void)
+{
+    uint32_t discarded = 0U;
+
+    NVIC_DisableIRQ(LIDAR_UART_INST_INT_IRQN);
+    DL_UART_Main_disableInterrupt(
+        LIDAR_UART_INST, DL_UART_MAIN_INTERRUPT_RX);
+    DL_UART_Main_reset(LIDAR_UART_INST);
+    DL_UART_Main_enablePower(LIDAR_UART_INST);
+    delay_cycles(POWER_STARTUP_DELAY);
+    s_rx_head = 0U;
+    s_rx_tail = 0U;
+    SYSCFG_DL_LIDAR_UART_init();
+    while (!DL_UART_Main_isRXFIFOEmpty(LIDAR_UART_INST)) {
+        (void) DL_UART_Main_receiveData(LIDAR_UART_INST);
+        discarded++;
+    }
+    DL_UART_Main_clearInterruptStatus(
+        LIDAR_UART_INST, DL_UART_MAIN_INTERRUPT_RX);
+    NVIC_ClearPendingIRQ(LIDAR_UART_INST_INT_IRQN);
+    NVIC_SetPriority(LIDAR_UART_INST_INT_IRQN, 1U);
+    NVIC_EnableIRQ(LIDAR_UART_INST_INT_IRQN);
+    g_bsp_tfmini_uart_diag.rx_recovery_count++;
+    g_bsp_tfmini_uart_diag.rx_recovery_discarded_bytes += discarded;
+}
+
 bool BSP_TfminiUart_TryRead(uint8_t *byte)
 {
     if ((byte == NULL) || (s_rx_head == s_rx_tail)) {

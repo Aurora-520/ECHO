@@ -55,6 +55,8 @@
 #endif
 #define SERVICE_ESP_LINK_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
 #define SERVICE_BALL_BALANCE_TELEMETRY_PERIOD pdMS_TO_TICKS(40U)
+#define SERVICE_BALL_VISION_RX_STALL_PERIOD pdMS_TO_TICKS(80U)
+#define SERVICE_BALL_VISION_RX_STARTUP_STALL_PERIOD pdMS_TO_TICKS(500U)
 #define SERVICE_TFMINI_TRANSPORT_I2C 1U
 #define SERVICE_TFMINI_TRANSPORT_MIGRATION 2U
 #define SERVICE_TFMINI_MIGRATION_MIN_VALID_FRAMES 5U
@@ -89,6 +91,10 @@ void ServiceTask_Entry(void *context)
 #endif
     TickType_t last_esp_link_telemetry_time = last_wake_time;
     TickType_t last_ball_balance_telemetry_time = last_wake_time;
+#if ECHO_ENABLE_BALL_VISION && !ECHO_BALL_VISION_USE_UART2
+    TickType_t last_ball_vision_rx_progress_time = last_wake_time;
+    uint32_t last_ball_vision_rx_byte_count = 0U;
+#endif
 #if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
     TickType_t last_tfmini_migration_time = last_wake_time;
 #else
@@ -128,6 +134,29 @@ void ServiceTask_Entry(void *context)
 #else
         while (BSP_TfminiUart_TryRead(&ball_vision_byte)) {
             BallVision_ProcessByte(ball_vision_byte, now_us);
+        }
+        {
+            const volatile bsp_tfmini_uart_diagnostics_t *vision_uart =
+                BSP_TfminiUart_GetDiagnostics();
+
+            if (vision_uart->rx_byte_count !=
+                    last_ball_vision_rx_byte_count) {
+                last_ball_vision_rx_byte_count =
+                    vision_uart->rx_byte_count;
+                last_ball_vision_rx_progress_time = now;
+            } else {
+                TickType_t stall_period =
+                    vision_uart->rx_byte_count == 0U ?
+                    SERVICE_BALL_VISION_RX_STARTUP_STALL_PERIOD :
+                    SERVICE_BALL_VISION_RX_STALL_PERIOD;
+
+                if ((TickType_t) (
+                        now - last_ball_vision_rx_progress_time) >=
+                        stall_period) {
+                    BSP_TfminiUart_RecoverRx();
+                    last_ball_vision_rx_progress_time = now;
+                }
+            }
         }
 #endif
         BallVision_Update(now_us);
