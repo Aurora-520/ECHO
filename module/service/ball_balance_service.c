@@ -421,6 +421,22 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
                         H_BALL_H3_POSITIVE_BRAKE_GAIN_MDEG_PER_MM_S,
                         (float) vision.position_decimm * 0.1f,
                         (float) vision.velocity_mm_s, dt_s);
+                } else if (g_ball_balance_diag.snapshot.state ==
+                        (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET &&
+                    BallBalance_AbsI32(
+                        (int32_t) g_ball_balance_diag.snapshot.
+                            target_position_decimm -
+                        (int32_t) vision.position_decimm) <=
+                        H_BALL_HOLD_TOLERANCE_DECIMM) {
+                    /* Use the quiet hold controller only after the ball is
+                     * inside the center band. Farther away, keep the normal
+                     * search path so static friction can still be overcome. */
+                    output = BallPositionController_UpdateHold(
+                        &s_controller,
+                        (float) g_ball_balance_diag.snapshot.
+                            target_position_decimm * 0.1f,
+                        (float) vision.position_decimm * 0.1f,
+                        (float) vision.velocity_mm_s, dt_s);
                 } else {
                     output = BallPositionController_Update(&s_controller,
                         (float) g_ball_balance_diag.snapshot.

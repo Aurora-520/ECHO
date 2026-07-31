@@ -2,10 +2,20 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-31T16:10:00+08:00
+updated_at: 2026-07-31T22:10:00+08:00
 updated_by: Codex
-status: h_competition_adc8_best_accepted
+status: h4_continuous_center_validated_h5_feedforward_next
 ```
+
+## 当前任务：H4 持续回中已通过，下一步 H5 运动前馈
+
+- H4 现在是 `BALL CENTER`，不再属于循迹任务；启动和运行期间底盘持续强制安全关闭，
+  球目标固定为 0 mm，首次稳定后不结束，后续扰动会继续回中。
+- MAIN 和 H4 正式计时页均显示钢球位置，无有效视觉时显示 `--`。
+- `tmp/h4_chassis_motion_valid_20260731_215425_ball.csv` 的 88.2 s 实测为：视觉约 58.6 Hz、
+  fault 0、vision invalid 0、deadline 0、底盘目标 0；最终位置 -5.5 mm。
+- 下一步只在 H5 接入中心保持与底盘纵向加速度前馈。前馈必须在球控 `+/-25 deg` 限幅和
+  `100 deg/s` 斜坡之前叠加；H3/H4 参数与行为不得改变。
 
 ## 当前最优比赛代码：ADC8 循迹 + H3 滚球
 

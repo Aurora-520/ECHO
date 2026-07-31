@@ -216,7 +216,6 @@ static bool HMission_IsStraightControlRegion(int32_t filtered_position)
 static bool HMission_IsLineFollowingMission(uint8_t slot)
 {
     return slot == (uint8_t) H_MISSION_LINE_LAP ||
-        slot == (uint8_t) H_MISSION_AB_CENTER ||
         slot == (uint8_t) H_MISSION_LAP_CENTER ||
         slot == (uint8_t) H_MISSION_LAP_HOLD;
 }
@@ -231,9 +230,6 @@ static h_mission_context_t *HMission_GetActiveLineMission(void)
 {
     if (s_context[H_MISSION_LINE_LAP].running != 0U) {
         return &s_context[H_MISSION_LINE_LAP];
-    }
-    if (s_context[H_MISSION_AB_CENTER].running != 0U) {
-        return &s_context[H_MISSION_AB_CENTER];
     }
     if (s_context[H_MISSION_LAP_CENTER].running != 0U) {
         return &s_context[H_MISSION_LAP_CENTER];
@@ -874,7 +870,17 @@ static bool HMission_Start(void *context)
         HMissionService_RuntimeCalibrationActive()) {
         return false;
     }
-    ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
+    if (mission->slot == (uint8_t) H_MISSION_AB_CENTER) {
+        uint32_t now_us = BSP_Time_GetUs();
+
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
+        if (!BallBalanceService_CanStartPositionHold(now_us) ||
+            !BallBalanceService_RequestStartPositionHold(0)) {
+            return false;
+        }
+    } else {
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
+    }
     if (mission->slot == (uint8_t) H_MISSION_BALL_STEP) {
         uint32_t now_us = BSP_Time_GetUs();
 
@@ -947,6 +953,18 @@ static competition_mission_status_t HMission_Service(void *context,
             g_h_mission_diag.active_mission = H_MISSION_COUNT;
             return ball_status == BALL_BALANCE_MISSION_COMPLETE ?
                 COMPETITION_MISSION_COMPLETE : COMPETITION_MISSION_FAULT;
+        }
+        return COMPETITION_MISSION_RUNNING;
+    }
+    if (mission->slot == (uint8_t) H_MISSION_AB_CENTER) {
+        ball_balance_mission_status_t ball_status;
+
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
+        ball_status = BallBalanceService_GetMissionStatus();
+        if (ball_status != BALL_BALANCE_MISSION_RUNNING) {
+            mission->running = 0U;
+            g_h_mission_diag.active_mission = H_MISSION_COUNT;
+            return COMPETITION_MISSION_FAULT;
         }
         return COMPETITION_MISSION_RUNNING;
     }
@@ -1024,8 +1042,12 @@ static void HMission_Stop(void *context)
     }
     was_running = mission->running;
     mission->running = 0U;
-    if (mission->slot == (uint8_t) H_MISSION_BALL_STEP) {
+    if (mission->slot == (uint8_t) H_MISSION_BALL_STEP ||
+        mission->slot == (uint8_t) H_MISSION_AB_CENTER) {
         BallBalanceService_RequestAbort();
+    }
+    if (mission->slot == (uint8_t) H_MISSION_AB_CENTER) {
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
     }
     if (was_running != 0U && HMission_IsLineFollowingMission(mission->slot)) {
         g_h_mission_diag.line_terminal_status = H_LINE_TERMINAL_FAULT;
@@ -1354,7 +1376,7 @@ const char *HMissionService_Name(uint8_t slot)
     static const char *const names[H_MISSION_COUNT] = {
         "LINE LAP",
         "BALL STEP",
-        "AB CENTER",
+        "BALL CENTER",
         "LAP CENTER",
         "LAP HOLD"
     };

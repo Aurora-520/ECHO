@@ -190,6 +190,17 @@ static void RenderOfficialTimer(const competition_page_data_t *data)
     Ssd1306_DrawText(0U, 0U, line.text);
     FormatRunTime(data->competition.run_elapsed_ms, elapsed);
     Ssd1306_DrawTextScaled(4U, 20U, elapsed, 4U);
+    if (slot == (uint8_t) H_MISSION_AB_CENTER) {
+        Line_Clear(&line);
+        Line_Text(&line, "BALL:");
+        if (data->ball_valid != 0U) {
+            Line_SignedFixed1(&line, data->ball_position_mm);
+            Line_Text(&line, "mm");
+        } else {
+            Line_Text(&line, "--");
+        }
+        Draw(7U, &line);
+    }
 }
 
 static void RenderLineCalibration(const competition_page_data_t *data)
@@ -345,7 +356,14 @@ static void RenderMain(const competition_page_data_t *data)
     Draw(6U, &line);
 
     Line_Clear(&line);
-    Line_Text(&line, "L5 LINE CAL");
+    Line_Text(&line, "BALL:");
+    if (data->ball_valid != 0U) {
+        Line_SignedFixed1(&line, data->ball_position_mm);
+        Line_Text(&line, "mm");
+    } else {
+        Line_Text(&line, "--");
+    }
+    Line_Text(&line, " L5:CAL");
     Draw(7U, &line);
 
 }
