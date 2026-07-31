@@ -42,5 +42,9 @@
 #define H_BALL_H3_FINAL_VELOCITY_MM_S                   15
 #define H_BALL_H3_FINAL_SETTLE_US                   150000U
 #define H_BALL_H3_START_VELOCITY_LIMIT_MM_S              60
+#define H_BALL_HOLD_TARGET_LIMIT_DECIMM                1000
+#define H_BALL_HOLD_TOLERANCE_DECIMM                    100
+#define H_BALL_HOLD_VELOCITY_MM_S                        15
+#define H_BALL_HOLD_SETTLE_US                        150000U
 
 #endif

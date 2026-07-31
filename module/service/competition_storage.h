@@ -4,12 +4,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define COMPETITION_SETTINGS_VERSION 3U
+#define COMPETITION_SETTINGS_VERSION 4U
 #define COMPETITION_REFLECTANCE_CHANNEL_COUNT 8U
 
 typedef enum {
     COMPETITION_TEST_DISTANCE = 0U,
-    COMPETITION_TEST_HEADING = 1U
+    COMPETITION_TEST_HEADING = 1U,
+    COMPETITION_TEST_BALL_CENTER = 2U
 } competition_test_action_t;
 
 typedef struct {

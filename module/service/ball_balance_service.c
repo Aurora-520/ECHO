@@ -15,6 +15,11 @@
 #define BALL_BALANCE_LEVEL_TOLERANCE_MILLIDEGREES 500
 #define BALL_BALANCE_ENABLE_RETRY_US 100000U
 
+typedef enum {
+    BALL_BALANCE_MODE_H3_STEP = 0U,
+    BALL_BALANCE_MODE_POSITION_HOLD
+} ball_balance_mode_t;
+
 static ball_position_controller_t s_controller;
 static uint32_t s_run_start_us;
 static uint32_t s_state_start_us;
@@ -28,6 +33,9 @@ static uint8_t s_motor_center_valid;
 static uint8_t s_center_hold_staged;
 static uint8_t s_enable_requested;
 static uint8_t s_positive_braking_active;
+static uint8_t s_requested_mode;
+static uint8_t s_active_mode;
+static int16_t s_requested_target_decimm;
 static int32_t s_completed_hold_output_millidegrees;
 
 volatile ball_balance_diagnostics_t g_ball_balance_diag;
@@ -184,7 +192,7 @@ static bool BallBalance_VisionStartReady(uint32_t now_us,
     return true;
 }
 
-static void BallBalance_StartH3(uint32_t now_us)
+static void BallBalance_StartRequested(uint32_t now_us)
 {
     ball_vision_snapshot_t vision;
 
@@ -208,10 +216,12 @@ static void BallBalance_StartH3(uint32_t now_us)
     s_center_hold_staged = 0U;
     s_enable_requested = 0U;
     s_positive_braking_active = 0U;
+    s_active_mode = s_requested_mode;
     s_completed_hold_output_millidegrees = 0;
     g_ball_balance_diag.snapshot.fault = BALL_BALANCE_FAULT_NONE;
     g_ball_balance_diag.snapshot.target_position_decimm =
-        H_BALL_H3_POSITIVE_TARGET_DECIMM;
+        s_active_mode == (uint8_t) BALL_BALANCE_MODE_POSITION_HOLD ?
+            s_requested_target_decimm : H_BALL_H3_POSITIVE_TARGET_DECIMM;
     g_ball_balance_diag.snapshot.measured_position_decimm =
         vision.position_decimm;
     g_ball_balance_diag.snapshot.velocity_mm_s = vision.velocity_mm_s;
@@ -250,8 +260,28 @@ static void BallBalance_UpdatePhase(const ball_vision_snapshot_t *vision,
     int16_t error = (int16_t) (
         g_ball_balance_diag.snapshot.target_position_decimm -
         vision->position_decimm);
+    uint32_t settle_ms;
 
     g_ball_balance_diag.snapshot.position_error_decimm = error;
+    if (g_ball_balance_diag.snapshot.state ==
+            (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET) {
+        if (BallBalance_AbsI32(error) <= H_BALL_HOLD_TOLERANCE_DECIMM &&
+            s_controller.filtered_velocity_mm_s <=
+                H_BALL_HOLD_VELOCITY_MM_S &&
+            s_controller.filtered_velocity_mm_s >=
+                -H_BALL_HOLD_VELOCITY_MM_S) {
+            if (s_settle_start_us == 0U) {
+                s_settle_start_us = now_us;
+            }
+            settle_ms = (uint32_t) (now_us - s_settle_start_us) / 1000U;
+            g_ball_balance_diag.snapshot.settle_ms =
+                settle_ms > UINT16_MAX ? UINT16_MAX : (uint16_t) settle_ms;
+        } else {
+            s_settle_start_us = 0U;
+            g_ball_balance_diag.snapshot.settle_ms = 0U;
+        }
+        return;
+    }
     if (g_ball_balance_diag.snapshot.state ==
             (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE &&
         BallBalance_AbsI32(error) <=
@@ -279,8 +309,9 @@ static void BallBalance_UpdatePhase(const ball_vision_snapshot_t *vision,
             if (s_settle_start_us == 0U) {
                 s_settle_start_us = now_us;
             }
-            g_ball_balance_diag.snapshot.settle_ms = (uint16_t) (
-                (uint32_t) (now_us - s_settle_start_us) / 1000U);
+            settle_ms = (uint32_t) (now_us - s_settle_start_us) / 1000U;
+            g_ball_balance_diag.snapshot.settle_ms =
+                settle_ms > UINT16_MAX ? UINT16_MAX : (uint16_t) settle_ms;
             if ((uint32_t) (now_us - s_settle_start_us) >=
                     H_BALL_H3_FINAL_SETTLE_US) {
                 s_completed_hold_output_millidegrees =
@@ -430,7 +461,8 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
         }
     }
 
-    if (H_BALL_H3_TIMEOUT_US != 0U &&
+    if (s_active_mode == (uint8_t) BALL_BALANCE_MODE_H3_STEP &&
+        H_BALL_H3_TIMEOUT_US != 0U &&
         g_ball_balance_diag.snapshot.state !=
             (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE &&
         (uint32_t) (now_us - s_run_start_us) >= H_BALL_H3_TIMEOUT_US) {
@@ -483,6 +515,9 @@ void BallBalanceService_Init(void)
     memset((void *) &g_ball_balance_diag, 0,
         sizeof(g_ball_balance_diag));
     s_completed_hold_output_millidegrees = 0;
+    s_requested_mode = (uint8_t) BALL_BALANCE_MODE_H3_STEP;
+    s_active_mode = (uint8_t) BALL_BALANCE_MODE_H3_STEP;
+    s_requested_target_decimm = 0;
     (void) BallPositionController_Init(&s_controller, &config);
     g_ball_balance_diag.snapshot.state = BALL_BALANCE_STATE_IDLE;
     g_ball_balance_diag.snapshot.mission_status =
@@ -506,7 +541,7 @@ void BallBalanceService_Service(uint32_t now_us)
         BallBalance_BeginStopping(now_us);
     }
     if (g_ball_balance_diag.start_requested != 0U) {
-        BallBalance_StartH3(now_us);
+        BallBalance_StartRequested(now_us);
     }
 
     state = g_ball_balance_diag.snapshot.state;
@@ -522,7 +557,8 @@ void BallBalanceService_Service(uint32_t now_us)
         motor->position_error_millidegrees;
     if (state == (uint8_t) BALL_BALANCE_STATE_STARTING ||
         state == (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE ||
-        state == (uint8_t) BALL_BALANCE_STATE_MOVE_NEGATIVE) {
+        state == (uint8_t) BALL_BALANCE_STATE_MOVE_NEGATIVE ||
+        state == (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET) {
         g_ball_balance_diag.snapshot.elapsed_ms =
             (uint32_t) (now_us - s_run_start_us) / 1000U;
     }
@@ -569,7 +605,9 @@ void BallBalanceService_Service(uint32_t now_us)
         } else if (s_enable_requested != 0U &&
             motor->enabled != 0U) {
             s_last_control_update_us = now_us;
-            BallBalance_SetState(
+            BallBalance_SetState(s_active_mode ==
+                    (uint8_t) BALL_BALANCE_MODE_POSITION_HOLD ?
+                BALL_BALANCE_STATE_HOLD_TARGET :
                 BALL_BALANCE_STATE_MOVE_POSITIVE, now_us);
         } else if (s_enable_requested != 0U &&
             (uint32_t) (now_us - s_last_enable_request_us) >=
@@ -593,7 +631,8 @@ void BallBalanceService_Service(uint32_t now_us)
         }
     } else if (state == (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE ||
         state == (uint8_t) BALL_BALANCE_STATE_MOVE_NEGATIVE ||
-        state == (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE) {
+        state == (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE ||
+        state == (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET) {
         if (motor->online == 0U || motor->enabled == 0U) {
             BallBalance_FinishFault(BALL_BALANCE_FAULT_MOTOR_OFFLINE,
                 now_us);
@@ -700,8 +739,42 @@ bool BallBalanceService_RequestStartH3(void)
         g_ball_balance_diag.start_requested != 0U) {
         return false;
     }
+    s_requested_mode = (uint8_t) BALL_BALANCE_MODE_H3_STEP;
+    s_requested_target_decimm = H_BALL_H3_POSITIVE_TARGET_DECIMM;
     g_ball_balance_diag.start_requested = 1U;
     return true;
+}
+
+bool BallBalanceService_CanStartPositionHold(uint32_t now_us)
+{
+    return BallBalanceService_CanStartH3(now_us);
+}
+
+bool BallBalanceService_RequestStartPositionHold(int16_t target_decimm)
+{
+    if (g_ball_balance_diag.initialized == 0U ||
+        g_ball_balance_diag.start_requested != 0U ||
+        BallBalance_AbsI32(target_decimm) >
+            H_BALL_HOLD_TARGET_LIMIT_DECIMM) {
+        return false;
+    }
+    s_requested_mode = (uint8_t) BALL_BALANCE_MODE_POSITION_HOLD;
+    s_requested_target_decimm = target_decimm;
+    g_ball_balance_diag.start_requested = 1U;
+    return true;
+}
+
+bool BallBalanceService_IsTargetSettled(void)
+{
+    bool settled;
+
+    taskENTER_CRITICAL();
+    settled = g_ball_balance_diag.snapshot.state ==
+            (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET &&
+        g_ball_balance_diag.snapshot.settle_ms >=
+            (uint16_t) (H_BALL_HOLD_SETTLE_US / 1000U);
+    taskEXIT_CRITICAL();
+    return settled;
 }
 
 void BallBalanceService_RequestAbort(void)

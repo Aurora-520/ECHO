@@ -12,7 +12,8 @@ typedef enum {
     BALL_BALANCE_STATE_HOLD_COMPLETE,
     BALL_BALANCE_STATE_LEVELING_FAULT,
     BALL_BALANCE_STATE_STOPPING,
-    BALL_BALANCE_STATE_FAULT
+    BALL_BALANCE_STATE_FAULT,
+    BALL_BALANCE_STATE_HOLD_TARGET
 } ball_balance_state_t;
 
 typedef enum {
@@ -79,6 +80,9 @@ void BallBalanceService_Init(void);
 void BallBalanceService_Service(uint32_t now_us);
 bool BallBalanceService_CanStartH3(uint32_t now_us);
 bool BallBalanceService_RequestStartH3(void);
+bool BallBalanceService_CanStartPositionHold(uint32_t now_us);
+bool BallBalanceService_RequestStartPositionHold(int16_t target_decimm);
+bool BallBalanceService_IsTargetSettled(void);
 void BallBalanceService_RequestAbort(void);
 ball_balance_mission_status_t BallBalanceService_GetMissionStatus(void);
 bool BallBalanceService_GetSnapshot(ball_balance_snapshot_t *snapshot);

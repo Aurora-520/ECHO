@@ -615,6 +615,11 @@
               <FilePath>..\bsp\source\bsp_reflectance.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_reflectance_i2c6.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_reflectance_i2c6.c</FilePath>
+            </File>
+            <File>
               <FileName>bsp_supply_voltage.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_supply_voltage.c</FilePath>

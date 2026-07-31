@@ -11,6 +11,7 @@
 #include "bsp_time.h"
 #include "competition_service.h"
 #include "competition_storage.h"
+#include "vehicle_bringup_config.h"
 
 typedef struct {
     uint8_t slot;
@@ -31,24 +32,65 @@ typedef enum {
     H_LINE_SPEED_FINISH
 } h_line_speed_phase_t;
 
+typedef struct {
+    uint32_t white_sum[H_MISSION_LINE_SENSOR_COUNT];
+    uint32_t black_sum[H_MISSION_LINE_SENSOR_COUNT];
+    competition_reflectance_calibration_t candidate;
+    uint32_t capture_start_ms;
+    uint16_t sample_count;
+    uint8_t white_captured;
+    uint8_t black_captured;
+} h_line_runtime_calibration_t;
+
 #define H_LINE_CALIBRATION_MINIMUM_SPAN       180U
 #define H_LINE_ACTIVE_THRESHOLD_PERMILLE      350U
 #define H_LINE_CLUSTER_SUPPORT_PERMILLE       100U
 #define H_LINE_MINIMUM_TOTAL_STRENGTH         450U
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+#define H_LINE_LAUNCH_TARGET_DECI_RPM         600
+#define H_LINE_CURVE_TARGET_DECI_RPM          600
+#define H_LINE_CRUISE_TARGET_DECI_RPM         600
+#define H_LINE_FINISH_TARGET_DECI_RPM         400
+#define H_LINE_MAXIMUM_CORRECTION_DECI_RPM    460
+#else
 #define H_LINE_LAUNCH_TARGET_DECI_RPM        1000
 #define H_LINE_CURVE_TARGET_DECI_RPM         1200
 #define H_LINE_CRUISE_TARGET_DECI_RPM        1400
 #define H_LINE_FINISH_TARGET_DECI_RPM         750
 #define H_LINE_MAXIMUM_CORRECTION_DECI_RPM    750
+#endif
 #define H_LINE_MINIMUM_TARGET_DECI_RPM         60
 #define H_LINE_MAXIMUM_TARGET_DECI_RPM       2200
 #define H_LINE_COMMAND_PERIOD_MS              16U
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+#define H_LINE_CENTER_DEADBAND_MILLI          150
+#else
 #define H_LINE_CENTER_DEADBAND_MILLI          100
+#endif
 #define H_LINE_LAUNCH_DERIVATIVE_LEAD_SCANS     6
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+#define H_LINE_DERIVATIVE_LEAD_SCANS           15
+#define H_LINE_DERIVATIVE_LIMIT_MILLI          750
+#define H_LINE_CURVE_STEERING_FULL_SCALE_MILLI 3000
+#else
 #define H_LINE_DERIVATIVE_LEAD_SCANS           18
-#define H_LINE_DERIVATIVE_LIMIT_MILLI        1000
+#define H_LINE_DERIVATIVE_LIMIT_MILLI         1000
+#define H_LINE_CURVE_STEERING_FULL_SCALE_MILLI 3500
+#endif
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+#define H_LINE_LAUNCH_MAX_CORRECTION_DECI_RPM 360
+#else
 #define H_LINE_LAUNCH_MAX_CORRECTION_DECI_RPM 450
-#define H_LINE_CORRECTION_SLEW_DECI_RPM        80
+#endif
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+#define H_LINE_CORRECTION_ATTACK_SLEW_DECI_RPM  80
+#define H_LINE_CORRECTION_RELEASE_SLEW_DECI_RPM 40
+#define H_LINE_STRAIGHT_ATTACK_SLEW_DECI_RPM    40
+#else
+#define H_LINE_CORRECTION_ATTACK_SLEW_DECI_RPM  80
+#define H_LINE_CORRECTION_RELEASE_SLEW_DECI_RPM 80
+#define H_LINE_STRAIGHT_ATTACK_SLEW_DECI_RPM    80
+#endif
 #define H_LINE_LOST_STOP_SCANS                5U
 #define H_LINE_FINISH_WINDOW_SCANS             5U
 #define H_LINE_FINISH_STRONG_RUN               4U
@@ -68,12 +110,21 @@ typedef enum {
 #define H_LINE_CRUISE_ENTER_YAW_RATE_DPS       12.0f
 #define H_LINE_CRUISE_EXIT_YAW_RATE_DPS        18.0f
 #define H_LINE_STRAIGHT_POSITION_MILLI           450
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+#define H_LINE_STRAIGHT_DERIVATIVE_LEAD_SCANS      3
+#define H_LINE_STRAIGHT_MAX_CORRECTION_DECI_RPM  160
+#else
 #define H_LINE_STRAIGHT_DERIVATIVE_LEAD_SCANS      6
 #define H_LINE_STRAIGHT_MAX_CORRECTION_DECI_RPM  350
+#endif
 #define H_LINE_CONTROLLED_STOP_MS              80U
 #define H_LINE_ATTITUDE_MAX_AGE_US           50000U
 #define H_LINE_SCAN_STALE_MS                  60U
 #define H_LINE_CALIBRATION_SAVE_DELAY_MS       750U
+#define H_LINE_RUNTIME_WHITE_CAPTURE_MS         600U
+#define H_LINE_RUNTIME_BLACK_CAPTURE_MS         600U
+#define H_LINE_RUNTIME_WHITE_MINIMUM_SAMPLES     30U
+#define H_LINE_RUNTIME_BLACK_MINIMUM_SAMPLES     30U
 #define H_LINE_WHEEL_CIRCUMFERENCE_MM       204.2035f
 #define H_AB_START_TARGET_DECI_RPM              200
 #define H_AB_CRUISE_TARGET_DECI_RPM            1100
@@ -118,6 +169,7 @@ static uint8_t s_line_speed_phase;
 static uint8_t s_line_finish_masks[H_LINE_FINISH_WINDOW_SCANS];
 static uint8_t s_line_finish_mask_index;
 static float s_line_yaw_rate_dps;
+static h_line_runtime_calibration_t s_line_runtime_calibration;
 
 static int16_t HMission_ClampI16(int32_t value, int16_t minimum,
     int16_t maximum)
@@ -129,6 +181,22 @@ static int16_t HMission_ClampI16(int32_t value, int16_t minimum,
         return maximum;
     }
     return (int16_t) value;
+}
+
+static int16_t HMission_SlewLineCorrection(int32_t target,
+    int16_t attack_step)
+{
+    int32_t current = s_line_last_correction_deci_rpm;
+    int32_t current_magnitude = current < 0 ? -current : current;
+    int32_t target_magnitude = target < 0 ? -target : target;
+    bool same_direction = current == 0 || target == 0 ||
+        ((current < 0) == (target < 0));
+    int16_t step = same_direction && target_magnitude > current_magnitude ?
+        attack_step :
+        H_LINE_CORRECTION_RELEASE_SLEW_DECI_RPM;
+
+    return HMission_ClampI16(target,
+        (int16_t) (current - step), (int16_t) (current + step));
 }
 
 static float HMission_AbsFloat(float value)
@@ -417,6 +485,127 @@ static bool HMission_SaveCalibration(void)
         CompetitionStorage_SaveReflectanceCalibration(&calibration);
 }
 
+static void HMission_ApplyRuntimeCalibration(void)
+{
+    competition_reflectance_calibration_t *candidate =
+        &s_line_runtime_calibration.candidate;
+    uint8_t channel;
+    uint8_t mask = 0U;
+
+    for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT; channel++) {
+        if (candidate->white[channel] >= candidate->black[channel] &&
+            (uint16_t) (candidate->white[channel] -
+                candidate->black[channel]) >=
+                H_LINE_CALIBRATION_MINIMUM_SPAN) {
+            mask |= (uint8_t) (1U << channel);
+        }
+    }
+    candidate->valid_mask = mask;
+    g_h_mission_diag.line_runtime_calibration_mask = mask;
+    if (!HMission_CalibrationValid(candidate)) {
+        g_h_mission_diag.line_runtime_calibration_failure_count++;
+        g_h_mission_diag.line_runtime_calibration_state =
+            (uint8_t) H_LINE_RUNTIME_CAL_FAILED;
+        return;
+    }
+    for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT; channel++) {
+        g_h_mission_diag.line_calibration_black[channel] =
+            candidate->black[channel];
+        g_h_mission_diag.line_calibration_white[channel] =
+            candidate->white[channel];
+    }
+    g_h_mission_diag.line_calibration_mask = candidate->valid_mask;
+    g_h_mission_diag.line_runtime_calibration_count++;
+    g_h_mission_diag.line_runtime_calibration_applied = 1U;
+    g_h_mission_diag.line_runtime_calibration_state =
+        (uint8_t) H_LINE_RUNTIME_CAL_COMPLETE;
+    s_line_calibration_collecting = false;
+    s_line_filter_initialized = false;
+}
+
+static void HMission_UpdateRuntimeCalibrationCapture(
+    const uint16_t raw[H_MISSION_LINE_SENSOR_COUNT], uint32_t now_ms)
+{
+    uint8_t state = g_h_mission_diag.line_runtime_calibration_state;
+    uint8_t channel;
+
+    if (state == (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_WHITE) {
+        for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT;
+            channel++) {
+            s_line_runtime_calibration.white_sum[channel] += raw[channel];
+        }
+        if (s_line_runtime_calibration.sample_count < UINT16_MAX) {
+            s_line_runtime_calibration.sample_count++;
+        }
+        g_h_mission_diag.line_runtime_calibration_samples =
+            s_line_runtime_calibration.sample_count;
+        if ((uint32_t) (now_ms -
+                s_line_runtime_calibration.capture_start_ms) >=
+                H_LINE_RUNTIME_WHITE_CAPTURE_MS) {
+            if (s_line_runtime_calibration.sample_count <
+                    H_LINE_RUNTIME_WHITE_MINIMUM_SAMPLES) {
+                g_h_mission_diag.line_runtime_calibration_failure_count++;
+                g_h_mission_diag.line_runtime_calibration_state =
+                    (uint8_t) H_LINE_RUNTIME_CAL_FAILED;
+                return;
+            }
+            for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT;
+                channel++) {
+                s_line_runtime_calibration.candidate.white[channel] =
+                    (uint16_t) ((
+                        s_line_runtime_calibration.white_sum[channel] +
+                        s_line_runtime_calibration.sample_count / 2U) /
+                        s_line_runtime_calibration.sample_count);
+            }
+            s_line_runtime_calibration.white_captured = 1U;
+            g_h_mission_diag.line_runtime_white_captured = 1U;
+            g_h_mission_diag.line_runtime_calibration_state =
+                (uint8_t) H_LINE_RUNTIME_CAL_READY;
+            g_h_mission_diag.line_runtime_calibration_samples = 0U;
+            if (s_line_runtime_calibration.black_captured != 0U) {
+                HMission_ApplyRuntimeCalibration();
+            }
+        }
+    } else if (state == (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_BLACK) {
+        for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT;
+            channel++) {
+            s_line_runtime_calibration.black_sum[channel] += raw[channel];
+        }
+        if (s_line_runtime_calibration.sample_count < UINT16_MAX) {
+            s_line_runtime_calibration.sample_count++;
+        }
+        g_h_mission_diag.line_runtime_calibration_samples =
+            s_line_runtime_calibration.sample_count;
+        if ((uint32_t) (now_ms -
+                s_line_runtime_calibration.capture_start_ms) >=
+                H_LINE_RUNTIME_BLACK_CAPTURE_MS) {
+            if (s_line_runtime_calibration.sample_count <
+                    H_LINE_RUNTIME_BLACK_MINIMUM_SAMPLES) {
+                g_h_mission_diag.line_runtime_calibration_failure_count++;
+                g_h_mission_diag.line_runtime_calibration_state =
+                    (uint8_t) H_LINE_RUNTIME_CAL_FAILED;
+                return;
+            }
+            for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT;
+                channel++) {
+                s_line_runtime_calibration.candidate.black[channel] =
+                    (uint16_t) ((
+                        s_line_runtime_calibration.black_sum[channel] +
+                        s_line_runtime_calibration.sample_count / 2U) /
+                        s_line_runtime_calibration.sample_count);
+            }
+            s_line_runtime_calibration.black_captured = 1U;
+            g_h_mission_diag.line_runtime_black_captured = 1U;
+            g_h_mission_diag.line_runtime_calibration_state =
+                (uint8_t) H_LINE_RUNTIME_CAL_READY;
+            g_h_mission_diag.line_runtime_calibration_samples = 0U;
+            if (s_line_runtime_calibration.white_captured != 0U) {
+                HMission_ApplyRuntimeCalibration();
+            }
+        }
+    }
+}
+
 static void HMission_UpdateLineEstimate(
     const uint16_t raw[H_MISSION_LINE_SENSOR_COUNT])
 {
@@ -534,6 +723,9 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
     int32_t steering_error;
     int32_t correction;
     int32_t correction_limit;
+    int32_t correction_full_scale = 3500;
+    int16_t correction_attack_step =
+        H_LINE_CORRECTION_ATTACK_SLEW_DECI_RPM;
     int16_t base_target;
     int16_t left_target;
     int16_t right_target;
@@ -586,7 +778,11 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
             steering_error < 0) ||
         (filtered < -H_LINE_CENTER_DEADBAND_MILLI &&
             steering_error > 0)) {
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+        steering_error = filtered / 2;
+#else
         steering_error = 0;
+#endif
     }
     if (steering_error > H_LINE_CENTER_DEADBAND_MILLI) {
         steering_error -= H_LINE_CENTER_DEADBAND_MILLI;
@@ -628,16 +824,24 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
             (straight_control ?
                 H_LINE_STRAIGHT_MAX_CORRECTION_DECI_RPM :
                 H_LINE_MAXIMUM_CORRECTION_DECI_RPM);
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+        if (mission_slot == (uint8_t) H_MISSION_LINE_LAP) {
+            if (straight_control) {
+                correction_attack_step =
+                    H_LINE_STRAIGHT_ATTACK_SLEW_DECI_RPM;
+            } else {
+                correction_full_scale =
+                    H_LINE_CURVE_STEERING_FULL_SCALE_MILLI;
+            }
+        }
+#endif
     }
-    correction = steering_error * correction_limit / 3500;
+    correction = steering_error * correction_limit / correction_full_scale;
     correction = HMission_ClampI16(correction,
         (int16_t) -correction_limit,
         (int16_t) correction_limit);
-    correction = HMission_ClampI16(correction,
-        (int16_t) (s_line_last_correction_deci_rpm -
-            H_LINE_CORRECTION_SLEW_DECI_RPM),
-        (int16_t) (s_line_last_correction_deci_rpm +
-            H_LINE_CORRECTION_SLEW_DECI_RPM));
+    correction = HMission_SlewLineCorrection(correction,
+        correction_attack_step);
     s_line_last_correction_deci_rpm = (int16_t) correction;
     left_target = HMission_ClampI16(
         base_target + correction,
@@ -666,7 +870,8 @@ static bool HMission_Start(void *context)
 {
     h_mission_context_t *mission = (h_mission_context_t *) context;
 
-    if (mission == NULL || mission->slot >= H_MISSION_COUNT) {
+    if (mission == NULL || mission->slot >= H_MISSION_COUNT ||
+        HMissionService_RuntimeCalibrationActive()) {
         return false;
     }
     ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
@@ -829,6 +1034,79 @@ static void HMission_Stop(void *context)
     g_h_mission_diag.active_mission = H_MISSION_COUNT;
 }
 
+bool HMissionService_BeginRuntimeCalibration(void)
+{
+    if (HMission_GetActiveLineMission() != NULL ||
+        g_chassis_actuator_diag.output_permitted != 0U) {
+        return false;
+    }
+    memset(&s_line_runtime_calibration, 0,
+        sizeof(s_line_runtime_calibration));
+    g_h_mission_diag.line_runtime_calibration_mask = 0U;
+    g_h_mission_diag.line_runtime_calibration_samples = 0U;
+    g_h_mission_diag.line_runtime_calibration_applied = 0U;
+    g_h_mission_diag.line_runtime_white_captured = 0U;
+    g_h_mission_diag.line_runtime_black_captured = 0U;
+    g_h_mission_diag.line_runtime_calibration_state =
+        (uint8_t) H_LINE_RUNTIME_CAL_READY;
+    return true;
+}
+
+bool HMissionService_CaptureRuntimeWhite(uint32_t now_ms)
+{
+    uint8_t state = g_h_mission_diag.line_runtime_calibration_state;
+
+    if (state != (uint8_t) H_LINE_RUNTIME_CAL_READY &&
+        state != (uint8_t) H_LINE_RUNTIME_CAL_COMPLETE &&
+        state != (uint8_t) H_LINE_RUNTIME_CAL_FAILED) {
+        return false;
+    }
+    memset(s_line_runtime_calibration.white_sum, 0,
+        sizeof(s_line_runtime_calibration.white_sum));
+    s_line_runtime_calibration.white_captured = 0U;
+    g_h_mission_diag.line_runtime_white_captured = 0U;
+    s_line_runtime_calibration.sample_count = 0U;
+    s_line_runtime_calibration.capture_start_ms = now_ms;
+    g_h_mission_diag.line_runtime_calibration_samples = 0U;
+    g_h_mission_diag.line_runtime_calibration_state =
+        (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_WHITE;
+    return true;
+}
+
+bool HMissionService_CaptureRuntimeBlack(uint32_t now_ms)
+{
+    uint8_t state = g_h_mission_diag.line_runtime_calibration_state;
+
+    if (state != (uint8_t) H_LINE_RUNTIME_CAL_READY &&
+        state != (uint8_t) H_LINE_RUNTIME_CAL_COMPLETE &&
+        state != (uint8_t) H_LINE_RUNTIME_CAL_FAILED) {
+        return false;
+    }
+    memset(s_line_runtime_calibration.black_sum, 0,
+        sizeof(s_line_runtime_calibration.black_sum));
+    s_line_runtime_calibration.black_captured = 0U;
+    g_h_mission_diag.line_runtime_black_captured = 0U;
+    s_line_runtime_calibration.sample_count = 0U;
+    s_line_runtime_calibration.capture_start_ms = now_ms;
+    g_h_mission_diag.line_runtime_calibration_samples = 0U;
+    g_h_mission_diag.line_runtime_calibration_state =
+        (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_BLACK;
+    return true;
+}
+
+void HMissionService_AbortRuntimeCalibration(void)
+{
+    g_h_mission_diag.line_runtime_calibration_state =
+        (uint8_t) H_LINE_RUNTIME_CAL_IDLE;
+    g_h_mission_diag.line_runtime_calibration_samples = 0U;
+}
+
+bool HMissionService_RuntimeCalibrationActive(void)
+{
+    return g_h_mission_diag.line_runtime_calibration_state !=
+        (uint8_t) H_LINE_RUNTIME_CAL_IDLE;
+}
+
 void HMissionService_Init(void)
 {
     competition_reflectance_calibration_t calibration;
@@ -836,6 +1114,8 @@ void HMissionService_Init(void)
 
     memset((void *) &g_h_mission_diag, 0, sizeof(g_h_mission_diag));
     memset(s_context, 0, sizeof(s_context));
+    memset(&s_line_runtime_calibration, 0,
+        sizeof(s_line_runtime_calibration));
     for (slot = 0U; slot < H_MISSION_LINE_SENSOR_COUNT; slot++) {
         g_h_mission_diag.line_calibration_black[slot] = UINT16_MAX;
     }
@@ -857,6 +1137,8 @@ void HMissionService_Init(void)
     s_line_yaw_rate_dps = H_LINE_CRUISE_EXIT_YAW_RATE_DPS;
     memset(s_line_finish_masks, 0, sizeof(s_line_finish_masks));
     s_line_finish_mask_index = 0U;
+    g_h_mission_diag.line_runtime_calibration_state =
+        (uint8_t) H_LINE_RUNTIME_CAL_IDLE;
     if (CompetitionStorage_LoadReflectanceCalibration(&calibration) &&
         HMission_CalibrationValid(&calibration)) {
         for (slot = 0U; slot < H_MISSION_LINE_SENSOR_COUNT; slot++) {
@@ -898,7 +1180,9 @@ void HMissionService_ProcessReflectance(
     s_line_last_scan_sequence = scan_sequence;
     g_h_mission_diag.line_scan_count++;
     g_h_mission_diag.line_last_scan_ms = now_ms;
-    if (line_mission == NULL && s_line_calibration_collecting) {
+    HMission_UpdateRuntimeCalibrationCapture(raw, now_ms);
+    if (line_mission == NULL && s_line_calibration_collecting &&
+        !HMissionService_RuntimeCalibrationActive()) {
         uint8_t previous_mask =
             g_h_mission_diag.line_calibration_mask;
 

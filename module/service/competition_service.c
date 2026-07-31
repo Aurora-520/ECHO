@@ -4,10 +4,14 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "ball_balance_service.h"
+#include "bsp_time.h"
 #include "chassis_actuator.h"
+#include "h_mission_service.h"
 #include "imu_service.h"
 #include "parameter_service.h"
 #include "task.h"
+#include "vehicle_bringup_config.h"
 #include "zdt_stepper.h"
 
 #define COMPETITION_SAVE_DELAY_MS       750U
@@ -20,6 +24,10 @@
 #define COMPETITION_TURN_MAX_DECI_RPM   350U
 #define COMPETITION_TEST_FIELD_COUNT     7U
 #define COMPETITION_HEALTH_CHECK_MS    1500U
+#if ECHO_COMPETITION_ENABLE_BUTTON_ABORT
+#define COMPETITION_PHYSICAL_STOP_DEBOUNCE_MS 25U
+#endif
+#define COMPETITION_PHYSICAL_BUTTON_MASK      0x1FU
 
 volatile competition_service_snapshot_t g_competition_service;
 
@@ -31,6 +39,10 @@ static bool s_launch_test;
 static bool s_wait_start_release;
 static uint32_t s_health_check_start_ms;
 static uint32_t s_input_guard_until_ms;
+#if ECHO_COMPETITION_ENABLE_BUTTON_ABORT
+static uint32_t s_stop_button_candidate_since_ms;
+static uint8_t s_stop_button_candidate_mask;
+#endif
 
 static int32_t CompetitionService_Abs(int32_t value)
 {
@@ -90,7 +102,7 @@ static bool CompetitionService_SettingsValid(
     }
 
     return settings->task_slot < COMPETITION_TASK_SLOT_COUNT &&
-        settings->test_action <= (uint8_t) COMPETITION_TEST_HEADING &&
+        settings->test_action <= (uint8_t) COMPETITION_TEST_BALL_CENTER &&
         settings->start_delay_s <= 9U &&
         distance >= COMPETITION_DISTANCE_MIN_MM &&
         distance <= COMPETITION_DISTANCE_MAX_MM &&
@@ -140,6 +152,10 @@ static void CompetitionService_StopActive(uint32_t now_ms)
     if (!s_launch_test && slot < COMPETITION_TASK_SLOT_COUNT &&
         s_missions[slot].stop != NULL) {
         s_missions[slot].stop(s_missions[slot].context);
+    } else if (s_launch_test &&
+        g_competition_service.settings.test_action ==
+            (uint8_t) COMPETITION_TEST_BALL_CENTER) {
+        BallBalanceService_RequestAbort();
     }
     ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_EMERGENCY);
     g_competition_service.emergency_stop_count++;
@@ -168,6 +184,22 @@ static void CompetitionService_StartTest(uint32_t now_ms)
 {
     chassis_actuator_debug_request_t request;
     chassis_actuator_command_status_t status;
+
+    if (g_competition_service.settings.test_action ==
+            (uint8_t) COMPETITION_TEST_BALL_CENTER) {
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
+        if (BallBalanceService_CanStartPositionHold(BSP_Time_GetUs()) &&
+            BallBalanceService_RequestStartPositionHold(0)) {
+            g_competition_service.motion_applied = 1U;
+            CompetitionService_StartTimer(now_ms, true);
+            CompetitionService_SetState(COMPETITION_STATE_RUNNING);
+        } else {
+            g_competition_service.result =
+                (uint8_t) COMPETITION_RESULT_REJECTED;
+            CompetitionService_SetState(COMPETITION_STATE_FAULT);
+        }
+        return;
+    }
 
     memset(&request, 0, sizeof(request));
     g_competition_service.request_sequence++;
@@ -275,7 +307,8 @@ static void CompetitionService_AdjustField(bool increase, uint32_t now_ms)
             (increase ? 1U : COMPETITION_TASK_SLOT_COUNT - 1U)) %
             COMPETITION_TASK_SLOT_COUNT);
     } else if (field == 1U) {
-        settings->test_action = (settings->test_action == 0U) ? 1U : 0U;
+        settings->test_action = (uint8_t) (
+            (settings->test_action + (increase ? 1U : 2U)) % 3U);
     } else if (field == 2U) {
         CompetitionService_AdjustSigned(&settings->distance_mm, 100,
             COMPETITION_DISTANCE_MIN_MM, COMPETITION_DISTANCE_MAX_MM,
@@ -416,6 +449,10 @@ void CompetitionService_Init(void)
     g_competition_service.request_sequence = 0xC0000000UL;
     s_parameter_transaction_id = 0xF2000000UL;
     s_input_guard_until_ms = 0U;
+#if ECHO_COMPETITION_ENABLE_BUTTON_ABORT
+    s_stop_button_candidate_since_ms = 0U;
+    s_stop_button_candidate_mask = 0U;
+#endif
     (void) ChassisActuator_SetPivotMaximumRpm(
         (float) settings.turn_speed_deci_rpm * 0.1f);
 }
@@ -452,7 +489,23 @@ void CompetitionService_Service(uint32_t now_ms)
     } else if (g_competition_service.state ==
             (uint8_t) COMPETITION_STATE_RUNNING) {
         if (s_launch_test) {
-            if (g_competition_service.motion_applied == 0U &&
+            if (g_competition_service.settings.test_action ==
+                    (uint8_t) COMPETITION_TEST_BALL_CENTER) {
+                ball_balance_mission_status_t status =
+                    BallBalanceService_GetMissionStatus();
+
+                if (status == BALL_BALANCE_MISSION_FAULT) {
+                    CompetitionService_StopTimer(now_ms);
+                    g_competition_service.result =
+                        (uint8_t) COMPETITION_RESULT_MOTION_FAULT;
+                    CompetitionService_SetState(COMPETITION_STATE_FAULT);
+                } else if (BallBalanceService_IsTargetSettled()) {
+                    CompetitionService_StopTimer(now_ms);
+                    g_competition_service.result =
+                        (uint8_t) COMPETITION_RESULT_OK;
+                    CompetitionService_SetState(COMPETITION_STATE_RESULT);
+                }
+            } else if (g_competition_service.motion_applied == 0U &&
                 g_chassis_actuator_diag.last_request_sequence ==
                     g_competition_service.request_sequence) {
                 g_competition_service.motion_applied = 1U;
@@ -512,19 +565,44 @@ void CompetitionService_Service(uint32_t now_ms)
 void CompetitionService_ServicePhysicalButtons(uint8_t pressed_mask,
     uint32_t now_ms)
 {
+    uint8_t normalized_mask =
+        pressed_mask & COMPETITION_PHYSICAL_BUTTON_MASK;
+#if ECHO_COMPETITION_ENABLE_BUTTON_ABORT
+    bool stop_enabled =
+        g_competition_service.state ==
+            (uint8_t) COMPETITION_STATE_RUNNING ||
+        g_competition_service.state ==
+            (uint8_t) COMPETITION_STATE_COUNTDOWN;
+#endif
+
     if (s_wait_start_release) {
-        if (pressed_mask == 0U) {
+#if ECHO_COMPETITION_ENABLE_BUTTON_ABORT
+        s_stop_button_candidate_mask = 0U;
+#endif
+        if (normalized_mask == 0U) {
             s_wait_start_release = false;
         }
         return;
     }
-    if (pressed_mask != 0U &&
-        (g_competition_service.state ==
-            (uint8_t) COMPETITION_STATE_RUNNING ||
-         g_competition_service.state ==
-            (uint8_t) COMPETITION_STATE_COUNTDOWN)) {
+#if ECHO_COMPETITION_ENABLE_BUTTON_ABORT
+    if (!stop_enabled || normalized_mask == 0U) {
+        s_stop_button_candidate_mask = 0U;
+        return;
+    }
+    if (normalized_mask != s_stop_button_candidate_mask) {
+        s_stop_button_candidate_mask = normalized_mask;
+        s_stop_button_candidate_since_ms = now_ms;
+        return;
+    }
+    if ((uint32_t) (now_ms - s_stop_button_candidate_since_ms) >=
+            COMPETITION_PHYSICAL_STOP_DEBOUNCE_MS) {
+        s_stop_button_candidate_mask = 0U;
         CompetitionService_StopActive(now_ms);
     }
+#else
+    (void) normalized_mask;
+    (void) now_ms;
+#endif
 }
 
 void CompetitionService_HandleEvent(ui_input_event_t event,
@@ -542,7 +620,21 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
             (uint8_t) COMPETITION_STATE_RUNNING ||
         g_competition_service.state ==
             (uint8_t) COMPETITION_STATE_COUNTDOWN) {
+#if ECHO_COMPETITION_ENABLE_BUTTON_ABORT
         CompetitionService_StopActive(now_ms);
+#endif
+        return;
+    }
+    if (HMissionService_RuntimeCalibrationActive()) {
+        if (event.kind == UI_EVENT_PRESS && event.key == UI_KEY_UP) {
+            (void) HMissionService_CaptureRuntimeWhite(now_ms);
+        } else if (event.kind == UI_EVENT_PRESS &&
+            event.key == UI_KEY_DOWN) {
+            (void) HMissionService_CaptureRuntimeBlack(now_ms);
+        } else if (event.kind == UI_EVENT_PRESS &&
+            event.key == UI_KEY_OK) {
+            HMissionService_AbortRuntimeCalibration();
+        }
         return;
     }
     if (g_competition_service.advanced_mode != 0U) {
@@ -575,6 +667,14 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
     }
     if (g_competition_service.page ==
             (uint8_t) COMPETITION_PAGE_MAIN) {
+        if (g_competition_service.state ==
+                (uint8_t) COMPETITION_STATE_READY &&
+            event.key == UI_KEY_OK &&
+            event.kind == UI_EVENT_LONG_PRESS) {
+            ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
+            (void) HMissionService_BeginRuntimeCalibration();
+            return;
+        }
         if ((event.kind == UI_EVENT_PRESS ||
              event.kind == UI_EVENT_REPEAT) &&
             (event.key == UI_KEY_UP || event.key == UI_KEY_DOWN)) {
@@ -597,7 +697,11 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
                     (uint8_t) COMPETITION_STATE_FAULT) {
                 uint8_t slot = g_competition_service.settings.task_slot;
 
-                if (g_competition_service.state ==
+                if (g_competition_service.run_is_test != 0U &&
+                    g_competition_service.settings.test_action ==
+                        (uint8_t) COMPETITION_TEST_BALL_CENTER) {
+                    BallBalanceService_RequestAbort();
+                } else if (g_competition_service.state ==
                         (uint8_t) COMPETITION_STATE_RESULT &&
                     slot < COMPETITION_TASK_SLOT_COUNT &&
                     s_missions[slot].stop != NULL) {

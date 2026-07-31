@@ -7,6 +7,10 @@
  */
 #include "bsp_reflectance.h"
 
+#include "vehicle_bringup_config.h"
+
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_I2C6
+
 #include <limits.h>
 #include <string.h>
 
@@ -27,6 +31,14 @@
 volatile bsp_reflectance_diagnostics_t g_bsp_reflectance_diag;
 
 static uint32_t s_seen_failure_count;
+
+static uint16_t BSP_Reflectance_NormalizeRaw(uint16_t raw)
+{
+    if (raw > LINE_FOLLOWER6_REFLECTANCE_FULL_SCALE) {
+        raw = LINE_FOLLOWER6_REFLECTANCE_FULL_SCALE;
+    }
+    return (uint16_t) (LINE_FOLLOWER6_REFLECTANCE_FULL_SCALE - raw);
+}
 
 static bool BSP_Reflectance_I2cResultIsTimeout(uint32_t result)
 {
@@ -79,6 +91,7 @@ bool BSP_Reflectance_Service(bsp_reflectance_sample_t *sample)
 {
     line_follower6_sample_t source;
     line_follower6_snapshot_t driver;
+    uint16_t normalized[LINE_FOLLOWER6_CHANNEL_COUNT];
     uint16_t expanded[BSP_REFLECTANCE_CHANNEL_COUNT];
     uint16_t minimum;
     uint16_t maximum;
@@ -99,7 +112,10 @@ bool BSP_Reflectance_Service(bsp_reflectance_sample_t *sample)
         return false;
     }
 
-    if (!LineFollower6_ExpandRawToLegacy8(source.raw,
+    for (index = 0U; index < LINE_FOLLOWER6_CHANNEL_COUNT; index++) {
+        normalized[index] = BSP_Reflectance_NormalizeRaw(source.raw[index]);
+    }
+    if (!LineFollower6_ExpandRawToLegacy8(normalized,
             (line_follower6_channel_order_t)
                 LINE_FOLLOWER6_REFLECTANCE_CHANNEL_ORDER,
             expanded)) {
@@ -140,3 +156,5 @@ bool BSP_Reflectance_Service(bsp_reflectance_sample_t *sample)
     sample->sample_count = g_bsp_reflectance_diag.sample_count;
     return true;
 }
+
+#endif

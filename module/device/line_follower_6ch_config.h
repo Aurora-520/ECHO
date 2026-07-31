@@ -13,4 +13,7 @@
     LINE_FOLLOWER6_CHANNEL_ORDER_1_TO_6
 #endif
 
+/* The module reports a 12-bit value with black above white. */
+#define LINE_FOLLOWER6_REFLECTANCE_FULL_SCALE 4095U
+
 #endif

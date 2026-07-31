@@ -2,10 +2,24 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-31T00:24:45+08:00
+updated_at: 2026-07-31T16:10:00+08:00
 updated_by: Codex
-status: h3_terminal_braking_reverse_stability_accepted
+status: h_competition_adc8_best_accepted
 ```
+
+## 当前最优比赛代码：ADC8 循迹 + H3 滚球
+
+- 正式循迹后端恢复为 ADC8 八路灰度；H2 使用已实车验证的
+  `100 -> 120/140 -> 75 rpm` 速度表，八路完整扫描 125 Hz。用户确认当前整车表现通过，
+  并指定本版本为当前最优比赛代码。
+- 保留 H3 `O -> +50 mm -> -50 mm`、终点锁定、UART1 视觉和张大头控制；保留 H4/H5/H6、
+  OLED 黑白双点标定入口及双后端独立 Flash 标定存储。
+- 正式配置 `ECHO_COMPETITION_ENABLE_BUTTON_ABORT=0`：倒计时和运行中忽略全部按键，
+  真实任务终点、执行器安全门控和内部故障停车继续有效；调试构建可显式改为 `1`。
+- App 全量构建 `0 Error / 0 Warning`；正式 HEX SHA-256：
+  `40AB6ABC71A8F9EFEBEE4E200566E81075C2F8800E852D0278FEE60BDB0A4DDF`。
+  CMSIS-DAP `2e4c7219` 以 500 kHz 烧录成功，按用户要求跳过 Flash 回读。
+- Git 回退标签：`h-competition-best-adc8-20260731`。该标签是后续比赛修改的固定恢复点。
 
 ## 当前任务：H3 正向制动、反向防停滞与计时冻结
 

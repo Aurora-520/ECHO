@@ -1,6 +1,7 @@
 #ifndef ECHO_H_MISSION_SERVICE_H
 #define ECHO_H_MISSION_SERVICE_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define H_MISSION_LINE_SENSOR_COUNT 8U
@@ -13,6 +14,15 @@ typedef enum {
     H_MISSION_LAP_HOLD,
     H_MISSION_COUNT
 } h_mission_id_t;
+
+typedef enum {
+    H_LINE_RUNTIME_CAL_IDLE = 0U,
+    H_LINE_RUNTIME_CAL_READY,
+    H_LINE_RUNTIME_CAL_CAPTURE_WHITE,
+    H_LINE_RUNTIME_CAL_CAPTURE_BLACK,
+    H_LINE_RUNTIME_CAL_COMPLETE,
+    H_LINE_RUNTIME_CAL_FAILED
+} h_line_runtime_calibration_state_t;
 
 typedef struct {
     uint32_t start_count[H_MISSION_COUNT];
@@ -27,6 +37,8 @@ typedef struct {
     uint32_t line_timeout_stop_count;
     uint32_t line_calibration_save_count;
     uint32_t line_calibration_save_failure_count;
+    uint32_t line_runtime_calibration_count;
+    uint32_t line_runtime_calibration_failure_count;
     uint32_t line_ambiguous_scan_count;
     uint32_t ab_pass_count;
     uint32_t ab_timeout_count;
@@ -62,6 +74,12 @@ typedef struct {
     uint8_t line_terminal_status;
     uint8_t line_calibration_loaded;
     uint8_t line_calibration_saved;
+    uint8_t line_runtime_calibration_state;
+    uint8_t line_runtime_calibration_mask;
+    uint16_t line_runtime_calibration_samples;
+    uint8_t line_runtime_calibration_applied;
+    uint8_t line_runtime_white_captured;
+    uint8_t line_runtime_black_captured;
     uint8_t line_yaw_valid;
     int16_t line_base_target_deci_rpm;
     uint8_t line_speed_phase;
@@ -77,6 +95,11 @@ void HMissionService_Init(void);
 void HMissionService_ProcessReflectance(
     const uint16_t raw[H_MISSION_LINE_SENSOR_COUNT],
     uint32_t scan_sequence, uint32_t now_ms);
+bool HMissionService_BeginRuntimeCalibration(void);
+bool HMissionService_CaptureRuntimeWhite(uint32_t now_ms);
+bool HMissionService_CaptureRuntimeBlack(uint32_t now_ms);
+void HMissionService_AbortRuntimeCalibration(void);
+bool HMissionService_RuntimeCalibrationActive(void);
 const char *HMissionService_Code(uint8_t slot);
 const char *HMissionService_Name(uint8_t slot);
 

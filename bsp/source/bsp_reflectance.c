@@ -1,5 +1,9 @@
 #include "bsp_reflectance.h"
 
+#include "vehicle_bringup_config.h"
+
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_ADC8
+
 #include <stddef.h>
 #include <string.h>
 
@@ -155,3 +159,5 @@ bool BSP_Reflectance_Service(bsp_reflectance_sample_t *sample)
         s_last_complete_channel_mask;
     return complete;
 }
+
+#endif

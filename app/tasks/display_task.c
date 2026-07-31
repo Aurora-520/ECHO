@@ -12,11 +12,13 @@
 #include "bsp_zdt_uart.h"
 #include "attitude_estimator.h"
 #include "ball_vision.h"
+#include "ball_balance_service.h"
 #include "competition_page.h"
 #include "competition_service.h"
 #include "competition_storage.h"
 #include "chassis_actuator.h"
 #include "esp_uart_link_test.h"
+#include "h_mission_service.h"
 #include "imu_service.h"
 #include "motor_profile.h"
 #include "parameter_service.h"
@@ -47,6 +49,7 @@ static attitude_estimator_snapshot_t s_display_attitude_snapshot;
 static chassis_actuator_diagnostics_t s_display_chassis_snapshot;
 static competition_page_data_t s_display_page_data;
 static imu_service_snapshot_t s_display_imu_snapshot;
+static ball_balance_snapshot_t s_display_ball_snapshot;
 static float s_display_roll_zero_deg;
 static float s_display_pitch_zero_deg;
 static float s_display_yaw_zero_deg;
@@ -112,9 +115,20 @@ static void DisplayTask_Render(void)
     const parameter_metadata_t *metadata;
     bool attitude_valid;
     ball_vision_snapshot_t vision;
+    ball_balance_snapshot_t *ball = &s_display_ball_snapshot;
 
     memset(data, 0, sizeof(*data));
     CompetitionService_GetSnapshot(&data->competition);
+    if (BallBalanceService_GetSnapshot(ball)) {
+        data->ball_position_mm =
+            (float) ball->measured_position_decimm * 0.1f;
+        data->ball_target_mm =
+            (float) ball->target_position_decimm * 0.1f;
+        data->ball_error_mm =
+            (float) ball->position_error_decimm * 0.1f;
+        data->ball_velocity_mm_s = (float) ball->velocity_mm_s;
+        data->ball_valid = ball->vision_valid;
+    }
     if (!SystemHealth_GetSnapshot(&data->health)) {
         memset(&data->health, 0, sizeof(data->health));
         data->health.level = SYSTEM_HEALTH_UNKNOWN;
@@ -206,6 +220,19 @@ static void DisplayTask_Render(void)
         g_bsp_encoder_diag.left.initialized != 0U &&
         g_bsp_encoder_diag.right.initialized != 0U;
     data->reflectance_mask = g_bsp_reflectance_diag.valid_channel_mask;
+    data->line_runtime_calibration_state =
+        g_h_mission_diag.line_runtime_calibration_state;
+    data->line_runtime_calibration_mask =
+        g_h_mission_diag.line_runtime_calibration_mask;
+    data->line_runtime_calibration_samples =
+        g_h_mission_diag.line_runtime_calibration_samples;
+    data->line_runtime_calibration_applied =
+        g_h_mission_diag.line_runtime_calibration_applied;
+    data->line_runtime_white_captured =
+        g_h_mission_diag.line_runtime_white_captured;
+    data->line_runtime_black_captured =
+        g_h_mission_diag.line_runtime_black_captured;
+    data->reflectance_backend = ECHO_REFLECTANCE_BACKEND;
     data->esp_ready = g_bsp_esp_uart_diag.initialized != 0U &&
         g_esp_uart_link_test.link_online != 0U;
     data->esp_rtt_us = g_esp_uart_link_test.average_rtt_us;

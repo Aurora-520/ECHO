@@ -49,6 +49,14 @@ static void Line_U32(competition_ui_line_t *line, uint32_t value)
     }
 }
 
+static void Line_Hex8(competition_ui_line_t *line, uint8_t value)
+{
+    static const char digits[] = "0123456789ABCDEF";
+
+    Line_Char(line, digits[(value >> 4U) & 0x0FU]);
+    Line_Char(line, digits[value & 0x0FU]);
+}
+
 static void Line_I32(competition_ui_line_t *line, int32_t value)
 {
     uint32_t magnitude;
@@ -184,9 +192,69 @@ static void RenderOfficialTimer(const competition_page_data_t *data)
     Ssd1306_DrawTextScaled(4U, 20U, elapsed, 4U);
 }
 
+static void RenderLineCalibration(const competition_page_data_t *data)
+{
+    competition_ui_line_t line;
+    uint8_t state = data->line_runtime_calibration_state;
+
+    DrawHeader("LINE CAL", data,
+        data->reflectance_backend == 2U ? "I6" : "A8");
+    Line_Clear(&line);
+    Line_Text(&line, "K1 WHITE:");
+    Line_Text(&line, data->line_runtime_white_captured != 0U ?
+        "OK" : (state == (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_WHITE ?
+        "CAP" : "--"));
+    Draw(1U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "K2 BLACK:");
+    Line_Text(&line, data->line_runtime_black_captured != 0U ?
+        "OK" : (state == (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_BLACK ?
+        "CAP" : "--"));
+    Draw(2U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "STATE:");
+    if (state == (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_WHITE) {
+        Line_Text(&line, "CAP WHITE");
+    } else if (state == (uint8_t) H_LINE_RUNTIME_CAL_CAPTURE_BLACK) {
+        Line_Text(&line, "CAP BLACK");
+    } else if (state == (uint8_t) H_LINE_RUNTIME_CAL_COMPLETE) {
+        Line_Text(&line, "OK");
+    } else if (state == (uint8_t) H_LINE_RUNTIME_CAL_FAILED) {
+        Line_Text(&line, "FAIL");
+    } else {
+        Line_Text(&line, "READY");
+    }
+    Draw(3U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "SAMPLES:");
+    Line_U32(&line, data->line_runtime_calibration_samples);
+    Draw(4U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "MASK:");
+    Line_Hex8(&line, data->line_runtime_calibration_mask);
+    Line_Text(&line, " RAM ONLY");
+    Draw(5U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, data->line_runtime_calibration_applied != 0U ?
+        "ACTIVE:RAM PROFILE" : "ACTIVE:FLASH BASE");
+    Draw(6U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "K5 EXIT");
+    Draw(7U, &line);
+}
+
 static void RenderMain(const competition_page_data_t *data)
 {
     competition_ui_line_t line;
+    uint8_t ball_test = data->competition.run_is_test != 0U &&
+        data->competition.settings.test_action ==
+            (uint8_t) COMPETITION_TEST_BALL_CENTER;
+
+    if (data->line_runtime_calibration_state !=
+            (uint8_t) H_LINE_RUNTIME_CAL_IDLE) {
+        RenderLineCalibration(data);
+        return;
+    }
 
     DrawHeader("MAIN", data, NULL);
     Line_Clear(&line);
@@ -218,16 +286,34 @@ static void RenderMain(const competition_page_data_t *data)
     Draw(2U, &line);
 
     Line_Clear(&line);
-    Line_Text(&line, "DIST:");
-    Line_Fixed1(&line, data->distance_progress_mm);
-    Line_Text(&line, "mm");
+    if (ball_test != 0U) {
+        Line_Text(&line, "BALL:");
+        if (data->ball_valid != 0U) {
+            Line_SignedFixed1(&line, data->ball_position_mm);
+            Line_Text(&line, "mm V:");
+            Line_SignedFixed1(&line, data->ball_velocity_mm_s);
+        } else {
+            Line_Text(&line, "--");
+        }
+    } else {
+        Line_Text(&line, "DIST:");
+        Line_Fixed1(&line, data->distance_progress_mm);
+        Line_Text(&line, "mm");
+    }
     Draw(3U, &line);
 
     Line_Clear(&line);
-    Line_Text(&line, "RPM L:");
-    Line_Fixed1(&line, data->left_rpm);
-    Line_Text(&line, " R:");
-    Line_Fixed1(&line, data->right_rpm);
+    if (ball_test != 0U) {
+        Line_Text(&line, "TGT:");
+        Line_SignedFixed1(&line, data->ball_target_mm);
+        Line_Text(&line, " ERR:");
+        Line_SignedFixed1(&line, data->ball_error_mm);
+    } else {
+        Line_Text(&line, "RPM L:");
+        Line_Fixed1(&line, data->left_rpm);
+        Line_Text(&line, " R:");
+        Line_Fixed1(&line, data->right_rpm);
+    }
     Draw(4U, &line);
 
     Line_Clear(&line);
@@ -257,6 +343,10 @@ static void RenderMain(const competition_page_data_t *data)
         Line_Text(&line, "--");
     }
     Draw(6U, &line);
+
+    Line_Clear(&line);
+    Line_Text(&line, "L5 LINE CAL");
+    Draw(7U, &line);
 
 }
 
@@ -313,8 +403,15 @@ static void RenderTest(const competition_page_data_t *data)
     Line_Clear(&line);
     DrawSelectPrefix(&line, data, 1U);
     Line_Text(&line, "MODE:");
-    Line_Text(&line, data->competition.settings.test_action ==
-        (uint8_t) COMPETITION_TEST_DISTANCE ? "DIST" : "TURN");
+    if (data->competition.settings.test_action ==
+            (uint8_t) COMPETITION_TEST_DISTANCE) {
+        Line_Text(&line, "DIST");
+    } else if (data->competition.settings.test_action ==
+            (uint8_t) COMPETITION_TEST_HEADING) {
+        Line_Text(&line, "TURN");
+    } else {
+        Line_Text(&line, "BALL");
+    }
     Draw(2U, &line);
     Line_Clear(&line);
     DrawSelectPrefix(&line, data, 2U);
