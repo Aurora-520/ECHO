@@ -19,6 +19,9 @@ typedef struct {
     uint32_t irq_exit_count;
     uint32_t irq_drain_guard_count;
     uint32_t unexpected_iidx_count;
+    uint32_t rx_error_count;
+    uint32_t rx_poll_count;
+    uint32_t rx_poll_drained_bytes;
     uint32_t rx_recovery_count;
     uint32_t rx_recovery_discarded_bytes;
     uint16_t rx_high_water_bytes;
@@ -30,6 +33,7 @@ typedef struct {
 extern volatile bsp_tfmini_uart_diagnostics_t g_bsp_tfmini_uart_diag;
 
 void BSP_TfminiUart_Init(void);
+void BSP_TfminiUart_ServiceRx(void);
 void BSP_TfminiUart_RecoverRx(void);
 bool BSP_TfminiUart_TryRead(uint8_t *byte);
 bool BSP_TfminiUart_TryWrite(const uint8_t *data, uint8_t length);

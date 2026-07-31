@@ -12,6 +12,35 @@ static void Feed(const uint8_t *data, uint8_t length, uint32_t now_us)
     }
 }
 
+static uint16_t Crc16(const uint8_t *data, uint8_t length)
+{
+    uint16_t crc = 0xFFFFU;
+    uint8_t index;
+
+    for (index = 0U; index < length; index++) {
+        uint8_t bit;
+
+        crc ^= (uint16_t) data[index] << 8;
+        for (bit = 0U; bit < 8U; bit++) {
+            crc = (crc & 0x8000U) != 0U ?
+                (uint16_t) ((crc << 1) ^ 0x1021U) :
+                (uint16_t) (crc << 1);
+        }
+    }
+    return crc;
+}
+
+static void SetSequence(uint8_t *packet, uint16_t sequence)
+{
+    uint16_t crc;
+
+    packet[6] = (uint8_t) sequence;
+    packet[7] = (uint8_t) (sequence >> 8);
+    crc = Crc16(&packet[2], 18U);
+    packet[20] = (uint8_t) crc;
+    packet[21] = (uint8_t) (crc >> 8);
+}
+
 int main(void)
 {
     static const uint8_t fixed_packet[BALL_VISION_PACKET_BYTES] = {
@@ -28,6 +57,7 @@ int main(void)
         0x03U, 0x00U, 0x28U, 0xB0U
     };
     uint8_t bad_packet[BALL_VISION_PACKET_BYTES];
+    uint8_t restarted_packet[BALL_VISION_PACKET_BYTES];
     ball_vision_snapshot_t snapshot;
     uint8_t index;
 
@@ -59,5 +89,16 @@ int main(void)
     assert(snapshot.online == 0U);
     assert(snapshot.control_valid == 0U);
     assert(snapshot.timeout_count == 1U);
+
+    for (index = 0U; index < BALL_VISION_PACKET_BYTES; index++) {
+        restarted_packet[index] = fixed_packet[index];
+    }
+    SetSequence(restarted_packet, 0U);
+    Feed(restarted_packet, BALL_VISION_PACKET_BYTES, 270000U);
+    assert(BallVision_GetSnapshot(271000U, &snapshot));
+    assert(snapshot.online != 0U);
+    assert(snapshot.valid_packet_count == 2U);
+    assert(snapshot.packet_sequence == 0U);
+    assert(snapshot.out_of_order_packet_count == 0U);
     return 0;
 }

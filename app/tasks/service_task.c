@@ -55,7 +55,7 @@
 #endif
 #define SERVICE_ESP_LINK_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
 #define SERVICE_BALL_BALANCE_TELEMETRY_PERIOD pdMS_TO_TICKS(40U)
-#define SERVICE_BALL_VISION_RX_STALL_PERIOD pdMS_TO_TICKS(80U)
+#define SERVICE_BALL_VISION_RX_STALL_PERIOD pdMS_TO_TICKS(500U)
 #define SERVICE_BALL_VISION_RX_STARTUP_STALL_PERIOD pdMS_TO_TICKS(500U)
 #define SERVICE_TFMINI_TRANSPORT_I2C 1U
 #define SERVICE_TFMINI_TRANSPORT_MIGRATION 2U
@@ -132,6 +132,7 @@ void ServiceTask_Entry(void *context)
             BallVision_ProcessByte(ball_vision_byte, now_us);
         }
 #else
+        BSP_TfminiUart_ServiceRx();
         while (BSP_TfminiUart_TryRead(&ball_vision_byte)) {
             BallVision_ProcessByte(ball_vision_byte, now_us);
         }

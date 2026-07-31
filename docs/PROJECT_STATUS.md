@@ -645,3 +645,21 @@ quiet-window 门禁。这些维护不代表 Phase 2A 功能已经实现。
 - Final ZDT exit verification returned `BackendSelected=false` and
   `ShutdownPending=false`; the unavailable UART2/ZDT1 port is ignored by the
   TX-idle completion gate.
+
+## 22. 2026-07-31 UART1 vision restart robustness
+
+- UART1 vision now recovers from either device restarting first. A camera
+  restart resets its packet counter to zero; after a stream timeout the MCU
+  now accepts the first valid packet as the new sequence baseline.
+- The PA9 RX path has an internal pull-up, bounded multi-event ISR draining,
+  a 1 ms FIFO polling fallback, and automatic UART1 recovery without changing
+  UART0, UART2, UART3, line-following, motor control, or H3 control gains.
+- Camera-only restart was accepted immediately from old sequence 9923 to new
+  sequence 1 without resetting the MCU. The reverse order also recovered and
+  accepted the already-running camera at sequence 30285.
+- Final captures measured camera 58.7--58.9 fps and MCU control 98.4--98.8 Hz,
+  with CRC 0, out-of-order 0, deadline misses 0, and H3 fault 0. A missing ball
+  correctly leaves `control_valid=false`; this is not a UART link failure.
+- Full builds passed with 0 errors / 0 warnings and the final programmed image
+  passed byte-for-byte readback. Detailed evidence is in
+  `docs/worklogs/2026-07-31_uart1_camera_powercycle_recovery.md`.

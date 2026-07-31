@@ -1063,3 +1063,40 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
   aggregate scan correctly showed `FAIL`; this is not an IR failure.
 - The final select/deselect acceptance returned to `BackendSelected=false`
   and `ShutdownPending=false`; unavailable ZDT1 no longer blocks shutdown.
+
+## 26. 2026-07-31 UART1 camera power-cycle recovery
+
+- Root cause of the intermittent `VISION FAULT` after a MaixCAM restart was
+  the packet sequence check, not PA9 wiring. The camera restarts its sequence
+  at zero while the MCU retained the previous sequence and rejected every new
+  packet as out of order until the counter caught up.
+- `ball_vision` now establishes a new sequence baseline from the first valid
+  packet after the old stream has timed out. The regression test covers
+  sequence 1000, timeout, then camera sequence 0.
+- UART1 recovery now re-applies the PA9 RX mux and pull-up, drains all pending
+  RX events with a bounded ISR loop, polls the FIFO from ServiceTask as a
+  fallback, and clears UART error status from the 1 ms service context. Only
+  the actual RX interrupt is enabled, preventing a disconnected camera from
+  creating an error-interrupt storm.
+- MaixCAM-only restart passed without resetting the MCU: the old sequence was
+  9923 and sequence 1 from the restarted camera was accepted immediately.
+  Evidence: `tests/artifacts/uart1-fixed-camera-powercycle-20260731`.
+- Final restart capture passed at camera 58.738 fps and MCU control 98.789 Hz;
+  vision sequence increased from 655 to 3002, with UART0 CRC 0, telemetry
+  out-of-order 0, deadline misses 0, and H3 fault 0. Evidence:
+  `tests/artifacts/uart1-final-restart-confirm-20260731`.
+- The reverse power order also passed: after the MCU reinitialized while the
+  camera kept running, the MCU immediately accepted camera sequence 30285.
+  The 12-second capture measured camera 58.921 fps, control 98.437 Hz, CRC 0,
+  deadline misses 0, and H3 fault 0. Evidence:
+  `tests/artifacts/uart1-post-swd-recovery-20260731`.
+- A wireless SWD attach can itself reinitialize this target even when no
+  explicit reset command is issued. Use COM18 telemetry and camera status for
+  power-order validation; do not treat an SWD RAM snapshot as proof that the
+  MCU remained running.
+- Full FreeRTOS and App builds passed with 0 errors / 0 warnings. Final image
+  size is `Code=116440, RO=3948, RW=188, ZI=25144`; byte-for-byte Flash
+  readback SHA-256 is
+  `FF590CAF78EC1CFF5E509A81420763E2075D302E0CF1AF5E588BB625E3683582`.
+- `ECHO.uvmpw` and `freertos/keil/freertos_ECHO.uvprojx` remain local IDE
+  state and must not be committed. No GitHub push was performed in this step.

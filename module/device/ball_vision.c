@@ -154,6 +154,13 @@ static void BallVision_AcceptFrame(uint32_t now_us)
     uint16_t measurement_age_ms = BallVision_GetU16(&s_frame[18]);
     uint8_t flags = s_frame[5];
 
+    /* A restarted camera begins its packet sequence at zero. Once the
+     * previous stream has timed out, treat the first valid frame as a new
+     * sequence baseline instead of rejecting it until the counter catches up. */
+    if (g_ball_vision_diag.snapshot.online == 0U) {
+        s_sequence_valid = 0U;
+    }
+
     BallVision_BeginSnapshotWrite();
     if (!BallVision_RecordSequence(sequence)) {
         BallVision_EndSnapshotWrite();

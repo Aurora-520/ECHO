@@ -11,6 +11,18 @@
 #endif
 
 #define BSP_TFMINI_UART_ISR_MAX_DRAIN_BYTES 32U
+#define BSP_TFMINI_UART_ISR_MAX_EVENTS 8U
+#define BSP_TFMINI_UART_POLL_MAX_DRAIN_BYTES 32U
+#define BSP_TFMINI_UART_RX_ERROR_INTERRUPTS ( \
+    DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR | \
+    DL_UART_MAIN_INTERRUPT_BREAK_ERROR | \
+    DL_UART_MAIN_INTERRUPT_PARITY_ERROR | \
+    DL_UART_MAIN_INTERRUPT_FRAMING_ERROR | \
+    DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR | \
+    DL_UART_MAIN_INTERRUPT_NOISE_ERROR)
+#define BSP_TFMINI_UART_RX_INTERRUPT DL_UART_MAIN_INTERRUPT_RX
+#define BSP_TFMINI_UART_ALL_RX_STATUS ( \
+    BSP_TFMINI_UART_RX_INTERRUPT | BSP_TFMINI_UART_RX_ERROR_INTERRUPTS)
 
 static uint8_t s_rx_ring[BSP_TFMINI_UART_RX_CAPACITY_BYTES];
 static volatile uint16_t s_rx_head;
@@ -54,6 +66,30 @@ static void BSP_TfminiUart_OnRxByte(uint8_t byte)
     }
 }
 
+static uint8_t BSP_TfminiUart_DrainRx(uint8_t maximum_bytes)
+{
+    uint8_t drained = 0U;
+
+    while (!DL_UART_Main_isRXFIFOEmpty(LIDAR_UART_INST) &&
+        drained < maximum_bytes) {
+        BSP_TfminiUart_OnRxByte(
+            DL_UART_Main_receiveData(LIDAR_UART_INST));
+        drained++;
+    }
+    return drained;
+}
+
+static void BSP_TfminiUart_ArmRxInterrupts(void)
+{
+    DL_UART_Main_clearInterruptStatus(
+        LIDAR_UART_INST, BSP_TFMINI_UART_ALL_RX_STATUS);
+    DL_UART_Main_enableInterrupt(
+        LIDAR_UART_INST, BSP_TFMINI_UART_RX_INTERRUPT);
+    NVIC_ClearPendingIRQ(LIDAR_UART_INST_INT_IRQN);
+    NVIC_SetPriority(LIDAR_UART_INST_INT_IRQN, 1U);
+    NVIC_EnableIRQ(LIDAR_UART_INST_INT_IRQN);
+}
+
 void BSP_TfminiUart_Init(void)
 {
     s_rx_head = 0U;
@@ -64,13 +100,34 @@ void BSP_TfminiUart_Init(void)
         sizeof(g_bsp_tfmini_uart_diag));
     g_bsp_tfmini_uart_diag.initialized = 1U;
 
+    BSP_TfminiUart_ArmRxInterrupts();
+}
+
+void BSP_TfminiUart_ServiceRx(void)
+{
+    uint32_t error_status;
+    uint8_t drained;
+
+    g_bsp_tfmini_uart_diag.rx_poll_count++;
+    error_status = DL_UART_Main_getRawInterruptStatus(
+        LIDAR_UART_INST, BSP_TFMINI_UART_RX_ERROR_INTERRUPTS);
+    if (error_status != 0U) {
+        g_bsp_tfmini_uart_diag.rx_error_count++;
+        DL_UART_Main_clearInterruptStatus(
+            LIDAR_UART_INST, error_status);
+    }
+    if (DL_UART_Main_isRXFIFOEmpty(LIDAR_UART_INST)) {
+        return;
+    }
+
+    NVIC_DisableIRQ(LIDAR_UART_INST_INT_IRQN);
+    drained = BSP_TfminiUart_DrainRx(
+        BSP_TFMINI_UART_POLL_MAX_DRAIN_BYTES);
     DL_UART_Main_clearInterruptStatus(
-        LIDAR_UART_INST, DL_UART_MAIN_INTERRUPT_RX);
-    DL_UART_Main_enableInterrupt(
-        LIDAR_UART_INST, DL_UART_MAIN_INTERRUPT_RX);
+        LIDAR_UART_INST, BSP_TFMINI_UART_ALL_RX_STATUS);
     NVIC_ClearPendingIRQ(LIDAR_UART_INST_INT_IRQN);
-    NVIC_SetPriority(LIDAR_UART_INST_INT_IRQN, 1U);
     NVIC_EnableIRQ(LIDAR_UART_INST_INT_IRQN);
+    g_bsp_tfmini_uart_diag.rx_poll_drained_bytes += drained;
 }
 
 void BSP_TfminiUart_RecoverRx(void)
@@ -79,22 +136,22 @@ void BSP_TfminiUart_RecoverRx(void)
 
     NVIC_DisableIRQ(LIDAR_UART_INST_INT_IRQN);
     DL_UART_Main_disableInterrupt(
-        LIDAR_UART_INST, DL_UART_MAIN_INTERRUPT_RX);
+        LIDAR_UART_INST, BSP_TFMINI_UART_RX_INTERRUPT);
     DL_UART_Main_reset(LIDAR_UART_INST);
     DL_UART_Main_enablePower(LIDAR_UART_INST);
     delay_cycles(POWER_STARTUP_DELAY);
     s_rx_head = 0U;
     s_rx_tail = 0U;
+    DL_GPIO_initPeripheralInputFunctionFeatures(
+        GPIO_LIDAR_UART_IOMUX_RX, GPIO_LIDAR_UART_IOMUX_RX_FUNC,
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
+        DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
     SYSCFG_DL_LIDAR_UART_init();
     while (!DL_UART_Main_isRXFIFOEmpty(LIDAR_UART_INST)) {
         (void) DL_UART_Main_receiveData(LIDAR_UART_INST);
         discarded++;
     }
-    DL_UART_Main_clearInterruptStatus(
-        LIDAR_UART_INST, DL_UART_MAIN_INTERRUPT_RX);
-    NVIC_ClearPendingIRQ(LIDAR_UART_INST_INT_IRQN);
-    NVIC_SetPriority(LIDAR_UART_INST_INT_IRQN, 1U);
-    NVIC_EnableIRQ(LIDAR_UART_INST_INT_IRQN);
+    BSP_TfminiUart_ArmRxInterrupts();
     g_bsp_tfmini_uart_diag.rx_recovery_count++;
     g_bsp_tfmini_uart_diag.rx_recovery_discarded_bytes += discarded;
 }
@@ -166,31 +223,50 @@ const volatile bsp_tfmini_uart_diagnostics_t *
 
 void LIDAR_UART_INST_IRQHandler(void)
 {
-    DL_UART_IIDX iidx =
-        DL_UART_Main_getPendingInterrupt(LIDAR_UART_INST);
+    uint8_t event_count;
 
     g_bsp_tfmini_uart_diag.irq_entry_count++;
-    g_bsp_tfmini_uart_diag.last_iidx = (uint32_t) iidx;
-    switch (iidx) {
-        case DL_UART_MAIN_IIDX_RX:
-        {
-            uint8_t drained = 0U;
+    for (event_count = 0U;
+        event_count < BSP_TFMINI_UART_ISR_MAX_EVENTS;
+        event_count++) {
+        DL_UART_IIDX iidx =
+            DL_UART_Main_getPendingInterrupt(LIDAR_UART_INST);
 
-            while (!DL_UART_Main_isRXFIFOEmpty(LIDAR_UART_INST) &&
-                (drained < BSP_TFMINI_UART_ISR_MAX_DRAIN_BYTES)) {
-                BSP_TfminiUart_OnRxByte(
-                    DL_UART_Main_receiveData(LIDAR_UART_INST));
-                drained++;
-            }
-            if (!DL_UART_Main_isRXFIFOEmpty(LIDAR_UART_INST)) {
-                g_bsp_tfmini_uart_diag.irq_drain_guard_count++;
-            }
+        if (iidx == DL_UART_MAIN_IIDX_NO_INTERRUPT) {
             break;
         }
+        g_bsp_tfmini_uart_diag.last_iidx = (uint32_t) iidx;
+        switch (iidx) {
+            case DL_UART_MAIN_IIDX_RX_TIMEOUT_ERROR:
+            case DL_UART_MAIN_IIDX_RX:
+            {
+                uint8_t drained = BSP_TfminiUart_DrainRx(
+                    BSP_TFMINI_UART_ISR_MAX_DRAIN_BYTES);
 
-        default:
-            g_bsp_tfmini_uart_diag.unexpected_iidx_count++;
-            break;
+                if (!DL_UART_Main_isRXFIFOEmpty(LIDAR_UART_INST)) {
+                    g_bsp_tfmini_uart_diag.irq_drain_guard_count++;
+                }
+                (void) drained;
+                break;
+            }
+
+            case DL_UART_MAIN_IIDX_OVERRUN_ERROR:
+            case DL_UART_MAIN_IIDX_BREAK_ERROR:
+            case DL_UART_MAIN_IIDX_PARITY_ERROR:
+            case DL_UART_MAIN_IIDX_FRAMING_ERROR:
+            case DL_UART_MAIN_IIDX_NOISE_ERROR:
+                g_bsp_tfmini_uart_diag.rx_error_count++;
+                (void) BSP_TfminiUart_DrainRx(
+                    BSP_TFMINI_UART_ISR_MAX_DRAIN_BYTES);
+                break;
+
+            default:
+                g_bsp_tfmini_uart_diag.unexpected_iidx_count++;
+                break;
+        }
+    }
+    if (event_count >= BSP_TFMINI_UART_ISR_MAX_EVENTS) {
+        g_bsp_tfmini_uart_diag.irq_drain_guard_count++;
     }
     g_bsp_tfmini_uart_diag.irq_exit_count++;
 }
