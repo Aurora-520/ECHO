@@ -625,6 +625,41 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
 #endif
         return;
     }
+    /* After a task has stopped, any deliberate key event returns to the
+     * READY main page. During RUNNING/COUNTDOWN the branch above still
+     * prevents accidental button input from affecting the mission. */
+    if ((g_competition_service.state ==
+            (uint8_t) COMPETITION_STATE_RESULT ||
+         g_competition_service.state ==
+            (uint8_t) COMPETITION_STATE_ABORTED ||
+         g_competition_service.state ==
+            (uint8_t) COMPETITION_STATE_FAULT) &&
+        (event.kind == UI_EVENT_PRESS ||
+         event.kind == UI_EVENT_REPEAT ||
+         event.kind == UI_EVENT_LONG_PRESS)) {
+        uint8_t slot = g_competition_service.settings.task_slot;
+
+        if (g_competition_service.run_is_test != 0U &&
+            g_competition_service.settings.test_action ==
+                (uint8_t) COMPETITION_TEST_BALL_CENTER) {
+            BallBalanceService_RequestAbort();
+        } else if (g_competition_service.state ==
+                (uint8_t) COMPETITION_STATE_RESULT &&
+            slot < COMPETITION_TASK_SLOT_COUNT &&
+            s_missions[slot].stop != NULL) {
+            s_missions[slot].stop(s_missions[slot].context);
+        }
+        g_competition_service.result =
+            (uint8_t) COMPETITION_RESULT_NONE;
+        g_competition_service.run_has_started = 0U;
+        g_competition_service.page =
+            (uint8_t) COMPETITION_PAGE_MAIN;
+        g_competition_service.cursor = 0U;
+        g_competition_service.editing = 0U;
+        g_competition_service.advanced_mode = 0U;
+        CompetitionService_SetState(COMPETITION_STATE_READY);
+        return;
+    }
     if (HMissionService_RuntimeCalibrationActive()) {
         if (event.kind == UI_EVENT_PRESS && event.key == UI_KEY_UP) {
             (void) HMissionService_CaptureRuntimeWhite(now_ms);

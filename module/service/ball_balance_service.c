@@ -56,6 +56,17 @@ static int16_t BallBalance_ClampI16(int32_t value)
     return (int16_t) value;
 }
 
+static void BallBalance_NormalizeVision(ball_vision_snapshot_t *vision)
+{
+    if (vision == NULL) {
+        return;
+    }
+    vision->position_decimm = BallBalance_ClampI16(
+        (int32_t) vision->position_decimm * H_BALL_VISION_POLARITY);
+    vision->velocity_mm_s = BallBalance_ClampI16(
+        (int32_t) vision->velocity_mm_s * H_BALL_VISION_POLARITY);
+}
+
 static void BallBalance_UpdateIdleVisionDiagnostics(uint32_t now_us)
 {
     ball_vision_snapshot_t vision;
@@ -64,6 +75,7 @@ static void BallBalance_UpdateIdleVisionDiagnostics(uint32_t now_us)
     if (!BallVision_GetSnapshot(now_us, &vision)) {
         return;
     }
+    BallBalance_NormalizeVision(&vision);
 
     g_ball_balance_diag.snapshot.measured_position_decimm =
         vision.position_decimm;
@@ -189,6 +201,7 @@ static bool BallBalance_VisionStartReady(uint32_t now_us,
             H_BALL_H3_START_VELOCITY_LIMIT_MM_S) {
         return false;
     }
+    BallBalance_NormalizeVision(vision);
     return true;
 }
 
@@ -342,6 +355,10 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
 {
     ball_vision_snapshot_t vision;
     bool snapshot_ok = BallVision_GetSnapshot(now_us, &vision);
+
+    if (snapshot_ok) {
+        BallBalance_NormalizeVision(&vision);
+    }
 
     if (snapshot_ok && vision.online != 0U &&
         vision.control_valid != 0U) {

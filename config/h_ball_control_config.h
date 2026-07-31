@@ -7,6 +7,7 @@
  * accelerate the ball toward the camera's positive coordinate direction.
  */
 #define H_BALL_MOTOR_POLARITY                         1
+#define H_BALL_VISION_POLARITY                       -1
 #define H_BALL_POSITION_VELOCITY_GAIN_PER_S          2.2f
 #define H_BALL_NEGATIVE_POSITION_VELOCITY_GAIN_PER_S 2.6f
 #define H_BALL_MAXIMUM_VELOCITY_MM_S                80.0f
