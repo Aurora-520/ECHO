@@ -445,6 +445,11 @@
               <FilePath>..\module\device\ball_vision.c</FilePath>
             </File>
             <File>
+              <FileName>line_follower_6ch.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\device\line_follower_6ch.c</FilePath>
+            </File>
+            <File>
               <FileName>system_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\app\tasks\system_task.c</FilePath>
