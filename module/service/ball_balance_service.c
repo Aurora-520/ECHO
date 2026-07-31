@@ -21,6 +21,7 @@ typedef enum {
 } ball_balance_mode_t;
 
 static ball_position_controller_t s_controller;
+static ball_position_controller_t s_drive_controller;
 static uint32_t s_run_start_us;
 static uint32_t s_state_start_us;
 static uint32_t s_last_command_us;
@@ -35,10 +36,23 @@ static uint8_t s_enable_requested;
 static uint8_t s_positive_braking_active;
 static uint8_t s_requested_mode;
 static uint8_t s_active_mode;
+static uint8_t s_requested_drive_hold;
+static uint8_t s_active_drive_hold;
 static int16_t s_requested_target_decimm;
 static int32_t s_completed_hold_output_millidegrees;
 
 volatile ball_balance_diagnostics_t g_ball_balance_diag;
+
+static void BallBalance_ClearChassisFeedforwardInternal(void)
+{
+    BallPositionController_SetFeedforward(&s_drive_controller, 0.0f);
+    (void) BallPositionController_SetOpposingFeedbackScale(
+        &s_drive_controller, 1.0f);
+    g_ball_balance_diag.snapshot.feedforward_millidegrees = 0;
+    g_ball_balance_diag.snapshot.planned_accel_mm_s2 = 0;
+    g_ball_balance_diag.snapshot.imu_accel_mm_s2 = 0;
+    g_ball_balance_diag.snapshot.encoder_accel_mm_s2 = 0;
+}
 
 static int32_t BallBalance_AbsI32(int32_t value)
 {
@@ -115,6 +129,8 @@ static void BallBalance_BeginStopping(uint32_t now_us)
 {
     zdt_stepper_request_status_t status;
 
+    BallBalance_ClearChassisFeedforwardInternal();
+    s_active_drive_hold = 0U;
     BallBalance_SetMissionStatus(BALL_BALANCE_MISSION_IDLE);
     if (s_motor_center_valid == 0U ||
         g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].online == 0U) {
@@ -153,6 +169,8 @@ static void BallBalance_LatchFault(ball_balance_fault_t fault)
 static void BallBalance_FinishFault(ball_balance_fault_t fault,
     uint32_t now_us)
 {
+    BallBalance_ClearChassisFeedforwardInternal();
+    s_active_drive_hold = 0U;
     BallBalance_LatchFault(fault);
     BallBalance_DeselectMotor();
     BallBalance_SetMissionStatus(BALL_BALANCE_MISSION_FAULT);
@@ -164,6 +182,8 @@ static void BallBalance_BeginLevelingFault(ball_balance_fault_t fault,
 {
     zdt_stepper_request_status_t status;
 
+    BallBalance_ClearChassisFeedforwardInternal();
+    s_active_drive_hold = 0U;
     BallBalance_LatchFault(fault);
     BallBalance_SetMissionStatus(BALL_BALANCE_MISSION_FAULT);
     if (s_motor_center_valid == 0U ||
@@ -217,7 +237,13 @@ static void BallBalance_StartRequested(uint32_t now_us)
         return;
     }
 
-    BallPositionController_Reset(&s_controller);
+    s_active_drive_hold = s_requested_drive_hold;
+    if (s_active_drive_hold != 0U) {
+        BallPositionController_Reset(&s_drive_controller);
+    } else {
+        BallPositionController_Reset(&s_controller);
+    }
+    BallBalance_ClearChassisFeedforwardInternal();
     s_run_start_us = now_us;
     s_last_command_us = now_us - H_BALL_COMMAND_PERIOD_US;
     s_last_control_update_us = now_us;
@@ -278,10 +304,12 @@ static void BallBalance_UpdatePhase(const ball_vision_snapshot_t *vision,
     g_ball_balance_diag.snapshot.position_error_decimm = error;
     if (g_ball_balance_diag.snapshot.state ==
             (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET) {
+        const ball_position_controller_t *controller =
+            s_active_drive_hold != 0U ? &s_drive_controller : &s_controller;
         if (BallBalance_AbsI32(error) <= H_BALL_HOLD_TOLERANCE_DECIMM &&
-            s_controller.filtered_velocity_mm_s <=
+            controller->filtered_velocity_mm_s <=
                 H_BALL_HOLD_VELOCITY_MM_S &&
-            s_controller.filtered_velocity_mm_s >=
+            controller->filtered_velocity_mm_s >=
                 -H_BALL_HOLD_VELOCITY_MM_S) {
             if (s_settle_start_us == 0U) {
                 s_settle_start_us = now_us;
@@ -421,32 +449,40 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
                         H_BALL_H3_POSITIVE_BRAKE_GAIN_MDEG_PER_MM_S,
                         (float) vision.position_decimm * 0.1f,
                         (float) vision.velocity_mm_s, dt_s);
-                } else if (g_ball_balance_diag.snapshot.state ==
-                        (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET &&
-                    BallBalance_AbsI32(
-                        (int32_t) g_ball_balance_diag.snapshot.
-                            target_position_decimm -
-                        (int32_t) vision.position_decimm) <=
-                        H_BALL_HOLD_TOLERANCE_DECIMM) {
-                    /* Use the quiet hold controller only after the ball is
-                     * inside the center band. Farther away, keep the normal
-                     * search path so static friction can still be overcome. */
-                    output = BallPositionController_UpdateHold(
-                        &s_controller,
-                        (float) g_ball_balance_diag.snapshot.
-                            target_position_decimm * 0.1f,
-                        (float) vision.position_decimm * 0.1f,
-                        (float) vision.velocity_mm_s, dt_s);
                 } else {
-                    output = BallPositionController_Update(&s_controller,
-                        (float) g_ball_balance_diag.snapshot.
-                            target_position_decimm * 0.1f,
-                        (float) vision.position_decimm * 0.1f,
-                        (float) vision.velocity_mm_s, dt_s);
+                    if (s_active_drive_hold != 0U) {
+                        bool inside_hold_band =
+                            BallBalance_AbsI32(
+                                (int32_t) g_ball_balance_diag.snapshot.
+                                    target_position_decimm -
+                                (int32_t) vision.position_decimm) <=
+                            H_BALL_HOLD_TOLERANCE_DECIMM;
+                        output = inside_hold_band ?
+                            BallPositionController_UpdateDriveHold(
+                                &s_drive_controller,
+                                (float) g_ball_balance_diag.snapshot.
+                                    target_position_decimm * 0.1f,
+                                (float) vision.position_decimm * 0.1f,
+                                (float) vision.velocity_mm_s, dt_s) :
+                            BallPositionController_UpdateDrive(
+                            &s_drive_controller,
+                            (float) g_ball_balance_diag.snapshot.
+                                target_position_decimm * 0.1f,
+                            (float) vision.position_decimm * 0.1f,
+                            (float) vision.velocity_mm_s, dt_s);
+                    } else {
+                        output = BallPositionController_Update(&s_controller,
+                            (float) g_ball_balance_diag.snapshot.
+                                target_position_decimm * 0.1f,
+                            (float) vision.position_decimm * 0.1f,
+                            (float) vision.velocity_mm_s, dt_s);
+                    }
                 }
             }
             g_ball_balance_diag.snapshot.control_output_millidegrees = output;
-            g_ball_balance_diag.snapshot.saturated = s_controller.saturated;
+            g_ball_balance_diag.snapshot.saturated =
+                s_active_drive_hold != 0U ? s_drive_controller.saturated :
+                    s_controller.saturated;
             if ((uint32_t) (now_us - s_last_command_us) >=
                     H_BALL_COMMAND_PERIOD_US) {
                 if (!BallBalance_SendMotorTarget(output)) {
@@ -550,8 +586,19 @@ void BallBalanceService_Init(void)
     s_completed_hold_output_millidegrees = 0;
     s_requested_mode = (uint8_t) BALL_BALANCE_MODE_H3_STEP;
     s_active_mode = (uint8_t) BALL_BALANCE_MODE_H3_STEP;
+    s_requested_drive_hold = 0U;
+    s_active_drive_hold = 0U;
     s_requested_target_decimm = 0;
     (void) BallPositionController_Init(&s_controller, &config);
+    {
+        ball_position_controller_config_t drive_config = config;
+        drive_config.integral_limit_millidegrees =
+            H_BALL_H5_INTEGRAL_LIMIT_MILLIDEGREES;
+        drive_config.maximum_output_millidegrees =
+            H_BALL_H5_MAXIMUM_OUTPUT_MILLIDEGREES;
+        (void) BallPositionController_Init(&s_drive_controller,
+            &drive_config);
+    }
     g_ball_balance_diag.snapshot.state = BALL_BALANCE_STATE_IDLE;
     g_ball_balance_diag.snapshot.mission_status =
         BALL_BALANCE_MISSION_IDLE;
@@ -773,6 +820,7 @@ bool BallBalanceService_RequestStartH3(void)
         return false;
     }
     s_requested_mode = (uint8_t) BALL_BALANCE_MODE_H3_STEP;
+    s_requested_drive_hold = 0U;
     s_requested_target_decimm = H_BALL_H3_POSITIVE_TARGET_DECIMM;
     g_ball_balance_diag.start_requested = 1U;
     return true;
@@ -792,6 +840,23 @@ bool BallBalanceService_RequestStartPositionHold(int16_t target_decimm)
         return false;
     }
     s_requested_mode = (uint8_t) BALL_BALANCE_MODE_POSITION_HOLD;
+    s_requested_drive_hold = 0U;
+    s_requested_target_decimm = target_decimm;
+    g_ball_balance_diag.start_requested = 1U;
+    return true;
+}
+
+bool BallBalanceService_RequestStartDrivePositionHold(
+    int16_t target_decimm)
+{
+    if (g_ball_balance_diag.initialized == 0U ||
+        g_ball_balance_diag.start_requested != 0U ||
+        BallBalance_AbsI32(target_decimm) >
+            H_BALL_HOLD_TARGET_LIMIT_DECIMM) {
+        return false;
+    }
+    s_requested_mode = (uint8_t) BALL_BALANCE_MODE_POSITION_HOLD;
+    s_requested_drive_hold = 1U;
     s_requested_target_decimm = target_decimm;
     g_ball_balance_diag.start_requested = 1U;
     return true;
@@ -808,6 +873,72 @@ bool BallBalanceService_IsTargetSettled(void)
             (uint16_t) (H_BALL_HOLD_SETTLE_US / 1000U);
     taskEXIT_CRITICAL();
     return settled;
+}
+
+bool BallBalanceService_IsDriveHoldReady(void)
+{
+    bool ready;
+
+    taskENTER_CRITICAL();
+    ready = s_active_drive_hold != 0U &&
+        g_ball_balance_diag.snapshot.mission_status ==
+            (uint8_t) BALL_BALANCE_MISSION_RUNNING &&
+        g_ball_balance_diag.snapshot.state ==
+            (uint8_t) BALL_BALANCE_STATE_HOLD_TARGET;
+    taskEXIT_CRITICAL();
+    return ready;
+}
+
+bool BallBalanceService_SetChassisFeedforward(
+    int16_t feedforward_millidegrees, int16_t planned_accel_mm_s2,
+    int16_t imu_accel_mm_s2, int16_t encoder_accel_mm_s2)
+{
+    bool accepted;
+
+    taskENTER_CRITICAL();
+    accepted = s_active_drive_hold != 0U &&
+        g_ball_balance_diag.snapshot.mission_status ==
+            (uint8_t) BALL_BALANCE_MISSION_RUNNING;
+    if (accepted) {
+        BallPositionController_SetFeedforward(&s_drive_controller,
+            (float) feedforward_millidegrees);
+        g_ball_balance_diag.snapshot.feedforward_millidegrees =
+            feedforward_millidegrees;
+        g_ball_balance_diag.snapshot.planned_accel_mm_s2 =
+            planned_accel_mm_s2;
+        g_ball_balance_diag.snapshot.imu_accel_mm_s2 =
+            imu_accel_mm_s2;
+        g_ball_balance_diag.snapshot.encoder_accel_mm_s2 =
+            encoder_accel_mm_s2;
+    }
+    taskEXIT_CRITICAL();
+    return accepted;
+}
+
+bool BallBalanceService_SetOpposingFeedbackScale(uint16_t scale_permille)
+{
+    bool accepted;
+
+    if (scale_permille > 1000U) {
+        return false;
+    }
+    taskENTER_CRITICAL();
+    accepted = s_active_drive_hold != 0U &&
+        g_ball_balance_diag.snapshot.mission_status ==
+            (uint8_t) BALL_BALANCE_MISSION_RUNNING;
+    if (accepted) {
+        accepted = BallPositionController_SetOpposingFeedbackScale(
+            &s_drive_controller, (float) scale_permille * 0.001f);
+    }
+    taskEXIT_CRITICAL();
+    return accepted;
+}
+
+void BallBalanceService_ClearChassisFeedforward(void)
+{
+    taskENTER_CRITICAL();
+    BallBalance_ClearChassisFeedforwardInternal();
+    taskEXIT_CRITICAL();
 }
 
 void BallBalanceService_RequestAbort(void)

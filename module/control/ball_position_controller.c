@@ -80,6 +80,12 @@ void BallPositionController_Reset(ball_position_controller_t *controller)
     controller->output_millidegrees = 0.0f;
     controller->proportional_millidegrees = 0.0f;
     controller->integral_millidegrees = 0.0f;
+    controller->feedforward_millidegrees = 0.0f;
+    controller->opposing_feedback_scale = 1.0f;
+    controller->output_limit_millidegrees =
+        controller->config.maximum_output_millidegrees;
+    controller->integral_limit_millidegrees =
+        controller->config.integral_limit_millidegrees;
     controller->position_error_mm = 0.0f;
     controller->target_velocity_mm_s = 0.0f;
     controller->filtered_velocity_mm_s = 0.0f;
@@ -92,6 +98,43 @@ void BallPositionController_Reset(ball_position_controller_t *controller)
     controller->motion_detected = 0U;
     controller->reversal_braking = 0U;
     controller->stall_reacquire_count = 0U;
+}
+
+bool BallPositionController_SetLimits(ball_position_controller_t *controller,
+    float output_limit_millidegrees, float integral_limit_millidegrees)
+{
+    if (controller == NULL || controller->initialized == 0U ||
+        output_limit_millidegrees <= 0.0f ||
+        integral_limit_millidegrees < 0.0f ||
+        integral_limit_millidegrees > output_limit_millidegrees) {
+        return false;
+    }
+    controller->output_limit_millidegrees = output_limit_millidegrees;
+    controller->integral_limit_millidegrees = integral_limit_millidegrees;
+    controller->integral_millidegrees = BallPositionController_Clamp(
+        controller->integral_millidegrees,
+        controller->integral_limit_millidegrees);
+    return true;
+}
+
+void BallPositionController_SetFeedforward(
+    ball_position_controller_t *controller, float feedforward_millidegrees)
+{
+    if (controller == NULL || controller->initialized == 0U) {
+        return;
+    }
+    controller->feedforward_millidegrees = feedforward_millidegrees;
+}
+
+bool BallPositionController_SetOpposingFeedbackScale(
+    ball_position_controller_t *controller, float scale)
+{
+    if (controller == NULL || controller->initialized == 0U ||
+        scale < 0.0f || scale > 1.0f) {
+        return false;
+    }
+    controller->opposing_feedback_scale = scale;
+    return true;
 }
 
 void BallPositionController_BeginReversal(
@@ -113,9 +156,12 @@ static int32_t BallPositionController_UpdateInternal(
     ball_position_controller_t *controller, float target_mm,
     float position_mm, float velocity_mm_s, float dt_s, bool hold,
     bool velocity_profiled, float profiled_target_velocity_mm_s,
-    float profiled_velocity_feedback_gain)
+    float profiled_velocity_feedback_gain, bool drive_extensions)
 {
     float requested;
+    float feedback;
+    float integral_limit;
+    float output_limit;
     float limited;
     float maximum_delta;
     float delta;
@@ -147,6 +193,12 @@ static int32_t BallPositionController_UpdateInternal(
     velocity_feedback_gain = velocity_profiled ?
         profiled_velocity_feedback_gain :
         controller->config.velocity_feedback_millidegrees_per_mm_s;
+    integral_limit = drive_extensions ?
+        controller->integral_limit_millidegrees :
+        controller->config.integral_limit_millidegrees;
+    output_limit = drive_extensions ?
+        controller->output_limit_millidegrees :
+        controller->config.maximum_output_millidegrees;
 
     direction = controller->position_error_mm >= 0.0f ? 1.0f : -1.0f;
     if (hold) {
@@ -211,8 +263,7 @@ static int32_t BallPositionController_UpdateInternal(
                     controller->integral_millidegrees =
                         BallPositionController_Clamp(
                             controller->output_millidegrees,
-                            controller->config.
-                                integral_limit_millidegrees);
+                            integral_limit);
                 }
                 search_rate = BallPositionController_Clamp(
                     controller->config.
@@ -224,7 +275,7 @@ static int32_t BallPositionController_UpdateInternal(
                     BallPositionController_Clamp(
                         controller->integral_millidegrees +
                             search_rate * dt_s,
-                        controller->config.integral_limit_millidegrees);
+                        integral_limit);
                 controller->proportional_millidegrees =
                     -controller->config.
                         search_velocity_damping_millidegrees_per_mm_s *
@@ -266,10 +317,17 @@ static int32_t BallPositionController_UpdateInternal(
             velocity_feedback_gain *
             controller->velocity_error_mm_s;
     }
-    requested = controller->proportional_millidegrees +
+    feedback = controller->proportional_millidegrees +
         controller->integral_millidegrees;
-    limited = BallPositionController_Clamp(requested,
-        controller->config.maximum_output_millidegrees);
+    if (drive_extensions) {
+        if (feedback * controller->feedforward_millidegrees < 0.0f) {
+            feedback *= controller->opposing_feedback_scale;
+        }
+        requested = feedback + controller->feedforward_millidegrees;
+    } else {
+        requested = feedback;
+    }
+    limited = BallPositionController_Clamp(requested, output_limit);
     controller->saturated =
         BallPositionController_Abs(requested - limited) > 0.01f ? 1U : 0U;
 
@@ -286,7 +344,8 @@ int32_t BallPositionController_Update(ball_position_controller_t *controller,
     float target_mm, float position_mm, float velocity_mm_s, float dt_s)
 {
     return BallPositionController_UpdateInternal(controller, target_mm,
-        position_mm, velocity_mm_s, dt_s, false, false, 0.0f, 0.0f);
+        position_mm, velocity_mm_s, dt_s, false, false, 0.0f, 0.0f,
+        false);
 }
 
 int32_t BallPositionController_UpdateProfiled(
@@ -299,7 +358,7 @@ int32_t BallPositionController_UpdateProfiled(
     }
     return BallPositionController_UpdateInternal(controller, target_mm,
         position_mm, velocity_mm_s, dt_s, false, true,
-        target_velocity_mm_s, velocity_feedback_gain);
+        target_velocity_mm_s, velocity_feedback_gain, false);
 }
 
 int32_t BallPositionController_UpdateHold(
@@ -307,5 +366,24 @@ int32_t BallPositionController_UpdateHold(
     float position_mm, float velocity_mm_s, float dt_s)
 {
     return BallPositionController_UpdateInternal(controller, target_mm,
-        position_mm, velocity_mm_s, dt_s, true, false, 0.0f, 0.0f);
+        position_mm, velocity_mm_s, dt_s, true, false, 0.0f, 0.0f,
+        false);
+}
+
+int32_t BallPositionController_UpdateDrive(
+    ball_position_controller_t *controller, float target_mm,
+    float position_mm, float velocity_mm_s, float dt_s)
+{
+    return BallPositionController_UpdateInternal(controller, target_mm,
+        position_mm, velocity_mm_s, dt_s, false, false, 0.0f, 0.0f,
+        true);
+}
+
+int32_t BallPositionController_UpdateDriveHold(
+    ball_position_controller_t *controller, float target_mm,
+    float position_mm, float velocity_mm_s, float dt_s)
+{
+    return BallPositionController_UpdateInternal(controller, target_mm,
+        position_mm, velocity_mm_s, dt_s, true, false, 0.0f, 0.0f,
+        true);
 }

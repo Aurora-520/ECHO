@@ -58,6 +58,11 @@ typedef struct {
     int16_t line_correction_deci_rpm;
     int16_t line_left_target_deci_rpm;
     int16_t line_right_target_deci_rpm;
+    int16_t h5_feedforward_millidegrees;
+    int16_t h5_planned_accel_mm_s2;
+    int16_t h5_imu_accel_mm_s2;
+    int16_t h5_encoder_accel_mm_s2;
+    uint16_t h5_feedback_scale_permille;
     uint8_t active_mission;
     uint8_t initialized;
     uint8_t line_calibration_mask;
@@ -87,6 +92,7 @@ typedef struct {
     uint8_t line_finish_evidence_count;
     uint8_t line_braking;
     uint8_t ab_passed;
+    uint8_t h5_drive_permitted;
 } h_mission_diagnostics_t;
 
 extern volatile h_mission_diagnostics_t g_h_mission_diag;

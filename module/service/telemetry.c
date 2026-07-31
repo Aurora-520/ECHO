@@ -753,6 +753,14 @@ static uint16_t Telemetry_EncodeBallBalance(
     }
     payload[62] = status;
     payload[63] = 0U;
+    Telemetry_PutU16(&payload[64],
+        (uint16_t) snapshot->feedforward_millidegrees);
+    Telemetry_PutU16(&payload[66],
+        (uint16_t) snapshot->planned_accel_mm_s2);
+    Telemetry_PutU16(&payload[68],
+        (uint16_t) snapshot->imu_accel_mm_s2);
+    Telemetry_PutU16(&payload[70],
+        (uint16_t) snapshot->encoder_accel_mm_s2);
     return Telemetry_EndFrame(frame, payload_length);
 }
 

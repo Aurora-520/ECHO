@@ -19,8 +19,8 @@ int main(void)
         .moving_bias_decay_millidegrees_per_s = 1000.0f,
         .hold_bias_decay_millidegrees_per_s = 500.0f,
         .stall_reacquire_position_error_mm = 3.0f,
-        .integral_limit_millidegrees = 40000.0f,
-        .maximum_output_millidegrees = 40000.0f,
+        .integral_limit_millidegrees = 25000.0f,
+        .maximum_output_millidegrees = 25000.0f,
         .maximum_slew_millidegrees_per_s = 50000.0f,
         .stall_reacquire_confirm_samples = 3U
     };
@@ -28,6 +28,62 @@ int main(void)
     int32_t output;
 
     assert(BallPositionController_Init(&controller, &config));
+
+    /* H3/legacy updates must ignore all drive-only extensions. */
+    assert(BallPositionController_SetLimits(&controller,
+        40000.0f, 40000.0f));
+    BallPositionController_SetFeedforward(&controller, 5000.0f);
+    assert(BallPositionController_SetOpposingFeedbackScale(
+        &controller, 0.2f));
+    output = BallPositionController_UpdateHold(
+        &controller, 0.0f, 0.0f, 0.0f, 0.02f);
+    assert(output == 0);
+    assert(controller.saturated == 0U);
+    BallPositionController_Reset(&controller);
+
+    /* H5 feedforward is summed before its task-specific output limit. */
+    assert(BallPositionController_SetLimits(&controller,
+        40000.0f, 40000.0f));
+    BallPositionController_SetFeedforward(&controller, 5000.0f);
+    output = BallPositionController_UpdateDriveHold(
+        &controller, 0.0f, 0.0f, 0.0f, 0.02f);
+    assert(output == 1000);
+    assert(controller.feedforward_millidegrees == 5000.0f);
+    assert(controller.output_limit_millidegrees == 40000.0f);
+    controller.output_millidegrees = 39500.0f;
+    BallPositionController_SetFeedforward(&controller, 50000.0f);
+    output = BallPositionController_UpdateDriveHold(
+        &controller, 0.0f, 0.0f, 0.0f, 0.02f);
+    assert(output == 40000);
+    assert(controller.saturated != 0U);
+    BallPositionController_Reset(&controller);
+    assert(controller.feedforward_millidegrees == 0.0f);
+    assert(controller.opposing_feedback_scale == 1.0f);
+    assert(controller.output_limit_millidegrees == 25000.0f);
+    assert(controller.integral_limit_millidegrees == 25000.0f);
+
+    /* Launch blending only attenuates feedback opposing feedforward. */
+    controller.config.maximum_slew_millidegrees_per_s = 1000000.0f;
+    assert(BallPositionController_SetOpposingFeedbackScale(
+        &controller, 0.2f));
+    BallPositionController_SetFeedforward(&controller, 5000.0f);
+    output = BallPositionController_UpdateDriveHold(
+        &controller, 0.0f, 20.0f, 0.0f, 0.02f);
+    assert(output == 4120);
+    BallPositionController_Reset(&controller);
+    controller.config.maximum_slew_millidegrees_per_s = 1000000.0f;
+    assert(BallPositionController_SetOpposingFeedbackScale(
+        &controller, 0.2f));
+    BallPositionController_SetFeedforward(&controller, 5000.0f);
+    output = BallPositionController_UpdateDriveHold(
+        &controller, 0.0f, -20.0f, 0.0f, 0.02f);
+    assert(output == 10600);
+    assert(!BallPositionController_SetOpposingFeedbackScale(
+        &controller, 1.1f));
+    BallPositionController_Reset(&controller);
+    controller.config.maximum_slew_millidegrees_per_s =
+        config.maximum_slew_millidegrees_per_s;
+    assert(controller.opposing_feedback_scale == 1.0f);
 
     /* Static camera jitter must not enter the velocity feedback path. */
     output = BallPositionController_Update(

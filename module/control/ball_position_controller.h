@@ -30,6 +30,10 @@ typedef struct {
     float output_millidegrees;
     float proportional_millidegrees;
     float integral_millidegrees;
+    float feedforward_millidegrees;
+    float opposing_feedback_scale;
+    float output_limit_millidegrees;
+    float integral_limit_millidegrees;
     float position_error_mm;
     float target_velocity_mm_s;
     float filtered_velocity_mm_s;
@@ -49,6 +53,12 @@ typedef struct {
 bool BallPositionController_Init(ball_position_controller_t *controller,
     const ball_position_controller_config_t *config);
 void BallPositionController_Reset(ball_position_controller_t *controller);
+bool BallPositionController_SetLimits(ball_position_controller_t *controller,
+    float output_limit_millidegrees, float integral_limit_millidegrees);
+void BallPositionController_SetFeedforward(
+    ball_position_controller_t *controller, float feedforward_millidegrees);
+bool BallPositionController_SetOpposingFeedbackScale(
+    ball_position_controller_t *controller, float scale);
 void BallPositionController_BeginReversal(
     ball_position_controller_t *controller);
 int32_t BallPositionController_Update(ball_position_controller_t *controller,
@@ -58,6 +68,12 @@ int32_t BallPositionController_UpdateProfiled(
     float target_velocity_mm_s, float velocity_feedback_gain,
     float position_mm, float velocity_mm_s, float dt_s);
 int32_t BallPositionController_UpdateHold(
+    ball_position_controller_t *controller, float target_mm,
+    float position_mm, float velocity_mm_s, float dt_s);
+int32_t BallPositionController_UpdateDrive(
+    ball_position_controller_t *controller, float target_mm,
+    float position_mm, float velocity_mm_s, float dt_s);
+int32_t BallPositionController_UpdateDriveHold(
     ball_position_controller_t *controller, float target_mm,
     float position_mm, float velocity_mm_s, float dt_s);
 

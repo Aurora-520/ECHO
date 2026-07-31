@@ -50,6 +50,10 @@ typedef struct {
     int16_t measured_position_decimm;
     int16_t velocity_mm_s;
     int16_t position_error_decimm;
+    int16_t feedforward_millidegrees;
+    int16_t planned_accel_mm_s2;
+    int16_t imu_accel_mm_s2;
+    int16_t encoder_accel_mm_s2;
     uint16_t vision_sequence;
     uint16_t vision_valid_age_ms;
     uint16_t settle_ms;
@@ -82,7 +86,15 @@ bool BallBalanceService_CanStartH3(uint32_t now_us);
 bool BallBalanceService_RequestStartH3(void);
 bool BallBalanceService_CanStartPositionHold(uint32_t now_us);
 bool BallBalanceService_RequestStartPositionHold(int16_t target_decimm);
+bool BallBalanceService_RequestStartDrivePositionHold(
+    int16_t target_decimm);
 bool BallBalanceService_IsTargetSettled(void);
+bool BallBalanceService_IsDriveHoldReady(void);
+bool BallBalanceService_SetChassisFeedforward(
+    int16_t feedforward_millidegrees, int16_t planned_accel_mm_s2,
+    int16_t imu_accel_mm_s2, int16_t encoder_accel_mm_s2);
+bool BallBalanceService_SetOpposingFeedbackScale(uint16_t scale_permille);
+void BallBalanceService_ClearChassisFeedforward(void);
 void BallBalanceService_RequestAbort(void);
 ball_balance_mission_status_t BallBalanceService_GetMissionStatus(void);
 bool BallBalanceService_GetSnapshot(ball_balance_snapshot_t *snapshot);

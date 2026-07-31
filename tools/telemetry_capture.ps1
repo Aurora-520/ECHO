@@ -53,7 +53,8 @@ $ImuPayloadLength = 88
 $LegacyEspLinkPayloadLength = 64
 $EspLinkPayloadLength = 96
 $AttitudePayloadLength = 64
-$BallBalancePayloadLength = 64
+$LegacyBallBalancePayloadLength = 64
+$BallBalancePayloadLength = 72
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 160
 [uint64]$U32HalfRange = 2147483648
@@ -307,7 +308,8 @@ if (-not [string]::IsNullOrWhiteSpace($BallBalanceCsvPath)) {
         "velocity_mm_s,position_error_mm,vision_sequence," +
         "vision_valid_age_ms,settle_ms,vision_flags,state," +
         "mission_status,fault,vision_valid,saturated,motor_online," +
-        "motor_enabled"
+        "motor_enabled,feedforward_deg,planned_accel_mm_s2," +
+        "imu_accel_mm_s2,encoder_accel_mm_s2"
     )
 }
 
@@ -1158,7 +1160,8 @@ try {
             }
         }
         elseif (($frameType -eq $BallBalanceFrameType) -and
-            ($payloadLength -eq $BallBalancePayloadLength)) {
+            (($payloadLength -eq $LegacyBallBalancePayloadLength) -or
+             ($payloadLength -eq $BallBalancePayloadLength))) {
             $ballBalanceFrames++
             if ($null -eq $firstBallBalanceTimestamp) {
                 $firstBallBalanceTimestamp = $timestampUs
@@ -1206,7 +1209,22 @@ try {
             $ballMissionStatus = $data[$payloadOffset + 60]
             $ballFault = $data[$payloadOffset + 61]
             $ballStatus = $data[$payloadOffset + 62]
+            $ballFeedforwardMdeg = 0
+            $ballPlannedAccelMmS2 = 0
+            $ballImuAccelMmS2 = 0
+            $ballEncoderAccelMmS2 = 0
+            if ($payloadLength -eq $BallBalancePayloadLength) {
+                $ballFeedforwardMdeg = [BitConverter]::ToInt16(
+                    $data, $payloadOffset + 64)
+                $ballPlannedAccelMmS2 = [BitConverter]::ToInt16(
+                    $data, $payloadOffset + 66)
+                $ballImuAccelMmS2 = [BitConverter]::ToInt16(
+                    $data, $payloadOffset + 68)
+                $ballEncoderAccelMmS2 = [BitConverter]::ToInt16(
+                    $data, $payloadOffset + 70)
+            }
             $ballControlOutputDeg = $ballControlOutputMdeg / 1000.0
+            $ballFeedforwardDeg = $ballFeedforwardMdeg / 1000.0
             $ballMotorCenterDeg = $ballMotorCenterMdeg / 1000.0
             $ballMotorTargetDeg = $ballMotorTargetMdeg / 1000.0
             $ballMotorActualDeg = $ballMotorActualMdeg / 1000.0
@@ -1242,6 +1260,10 @@ try {
                 Saturated = (($ballStatus -band 0x02) -ne 0)
                 MotorOnline = (($ballStatus -band 0x04) -ne 0)
                 MotorEnabled = (($ballStatus -band 0x08) -ne 0)
+                FeedforwardDeg = $ballFeedforwardDeg
+                PlannedAccelMmS2 = $ballPlannedAccelMmS2
+                ImuAccelMmS2 = $ballImuAccelMmS2
+                EncoderAccelMmS2 = $ballEncoderAccelMmS2
             }
             if ($null -ne $ballBalanceCsvWriter) {
                 $values = @(
@@ -1264,7 +1286,10 @@ try {
                     [int](($ballStatus -band 0x01) -ne 0),
                     [int](($ballStatus -band 0x02) -ne 0),
                     [int](($ballStatus -band 0x04) -ne 0),
-                    [int](($ballStatus -band 0x08) -ne 0)
+                    [int](($ballStatus -band 0x08) -ne 0),
+                    $ballFeedforwardDeg.ToString("R", $culture),
+                    $ballPlannedAccelMmS2, $ballImuAccelMmS2,
+                    $ballEncoderAccelMmS2
                 )
                 $ballBalanceCsvWriter.WriteLine($values -join ",")
             }

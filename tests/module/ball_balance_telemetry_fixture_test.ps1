@@ -25,7 +25,7 @@ function New-BallBalancePayload {
         [int16]$MeasuredPositionDecimm
     )
 
-    $payload = New-Object byte[] 64
+    $payload = New-Object byte[] 72
     [BitConverter]::GetBytes($UpdateSequence).CopyTo($payload, 0)
     [BitConverter]::GetBytes($ElapsedMs).CopyTo($payload, 4)
     [BitConverter]::GetBytes([uint32]5).CopyTo($payload, 8)
@@ -49,6 +49,10 @@ function New-BallBalancePayload {
     $payload[60] = 1
     $payload[61] = 0
     $payload[62] = 0x0D
+    [BitConverter]::GetBytes([int16]1250).CopyTo($payload, 64)
+    [BitConverter]::GetBytes([int16]85).CopyTo($payload, 66)
+    [BitConverter]::GetBytes([int16]73).CopyTo($payload, 68)
+    [BitConverter]::GetBytes([int16]91).CopyTo($payload, 70)
     return ,$payload
 }
 
@@ -110,14 +114,20 @@ try {
         ($summary.LatestBallBalance.VisionValid -ne $true) -or
         ($summary.LatestBallBalance.Saturated -ne $false) -or
         ($summary.LatestBallBalance.MotorOnline -ne $true) -or
-        ($summary.LatestBallBalance.MotorEnabled -ne $true)) {
+        ($summary.LatestBallBalance.MotorEnabled -ne $true) -or
+        ($summary.LatestBallBalance.FeedforwardDeg -ne 1.25) -or
+        ($summary.LatestBallBalance.PlannedAccelMmS2 -ne 85) -or
+        ($summary.LatestBallBalance.ImuAccelMmS2 -ne 73) -or
+        ($summary.LatestBallBalance.EncoderAccelMmS2 -ne 91)) {
         throw "Ball-balance telemetry summary did not match expected values."
     }
     $csvRows = @(Import-Csv -LiteralPath $csvPath)
     if (($csvRows.Count -ne 2) -or
         ($csvRows[1].measured_position_mm -ne "-49.3") -or
         ($csvRows[1].control_output_deg -ne "-2.5") -or
-        ($csvRows[1].motor_online -ne "1")) {
+        ($csvRows[1].motor_online -ne "1") -or
+        ($csvRows[1].feedforward_deg -ne "1.25") -or
+        ($csvRows[1].planned_accel_mm_s2 -ne "85")) {
         throw "Ball-balance telemetry CSV did not match expected values."
     }
     Write-Output "Ball-balance telemetry fixture: PASS"
