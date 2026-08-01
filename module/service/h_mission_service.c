@@ -128,19 +128,22 @@ typedef struct {
 #define H_LINE_RUNTIME_BLACK_MINIMUM_SAMPLES     30U
 #define H_LINE_WHEEL_CIRCUMFERENCE_MM       204.2035f
 #define H_AB_START_TARGET_DECI_RPM              200
-#define H_AB_CRUISE_TARGET_DECI_RPM             800
-#define H_AB_RAMP_MS                            1800U
+#define H_AB_CRUISE_TARGET_DECI_RPM             700
+#define H_AB_RAMP_MS                            2600U
 #define H_AB_TARGET_DISTANCE_MM               1500.0f
 #define H_AB_TIMEOUT_MS                         7500U
 #define H_AB_DERIVATIVE_LEAD_SCANS                 8
 #define H_AB_MAX_CORRECTION_DECI_RPM             350
 #define H_AB_STRAIGHT_DERIVATIVE_LEAD_SCANS         5
 #define H_AB_STRAIGHT_MAX_CORRECTION_DECI_RPM     250
+#define H_AB_GUARD_DEADBAND_MILLI                  700
+#define H_AB_GUARD_FULL_SCALE_MILLI               2000
+#define H_AB_GUARD_MAX_CORRECTION_DECI_RPM         200
+#define H_AB_GUARD_ATTACK_SLEW_DECI_RPM             30
 #define H_BALANCE_START_TARGET_DECI_RPM           200
 #define H_BALANCE_CRUISE_TARGET_DECI_RPM          700
-#define H_BALANCE_RAMP_MS                        2000U
+#define H_BALANCE_RAMP_MS                        2600U
 #define H_BALANCE_TIMEOUT_MS                    29000U
-#define H5_BALANCE_TEST_DISTANCE_MM              2000.0f
 #define H_BALANCE_DERIVATIVE_LEAD_SCANS             12
 #define H_BALANCE_MAX_CORRECTION_DECI_RPM         500
 #define H_BALANCE_STRAIGHT_DERIVATIVE_LEAD_SCANS     7
@@ -154,6 +157,30 @@ typedef struct {
 #define H5_LAUNCH_PLAN_ONLY_MS                         150U
 #define H5_LAUNCH_FEEDBACK_BLEND_MS                    250U
 #define H5_LAUNCH_INITIAL_FEEDBACK_SCALE               1.0f
+#define H_AB_LAUNCH_FEEDFORWARD_MILLIDEGREES        10000.0f
+#define H_AB_BALL_RELEASE_DISTANCE_MM              2500.0f
+#define H_AB_BALL_RELEASE_YAW_DEG                    50.0f
+#define H_LAUNCH_MINIMUM_HOLD_MS                         300U
+#define H_LAUNCH_MAXIMUM_HOLD_MS                       1200U
+#define H_LAUNCH_BALL_ERROR_BAND_MM                       8.0f
+#define H_LAUNCH_BALL_VELOCITY_BAND_MM_S                 12.0f
+#define H_LAUNCH_SPEED_ERROR_BAND_MM_S                   35.0f
+#define H_LAUNCH_STABLE_CONFIRM_MS                       150U
+#define H_LAUNCH_ERROR_BOOST_MDEG_PER_MM                140.0f
+#define H_LAUNCH_ERROR_BOOST_MAX_MDEG                  5000.0f
+#define H_TURN_FEEDFORWARD_MDEG_PER_DECI_RPM                4
+#define H_TURN_FEEDFORWARD_MAX_MDEG                      4000
+#define H_TURN_FEEDFORWARD_ATTACK_MDEG_PER_S            20000U
+#define H_TURN_FEEDFORWARD_RELEASE_MDEG_PER_S             5000U
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_ADC8
+#define H_LINE_CALIBRATION_PROFILE_VERSION                 2U
+static const uint16_t s_line_default_black[H_MISSION_LINE_SENSOR_COUNT] = {
+    719U, 805U, 210U, 64U, 63U, 61U, 63U, 66U
+};
+static const uint16_t s_line_default_white[H_MISSION_LINE_SENSOR_COUNT] = {
+    1098U, 1975U, 2374U, 1605U, 959U, 855U, 1347U, 1275U
+};
+#endif
 
 static const int16_t s_line_sensor_position[H_MISSION_LINE_SENSOR_COUNT] = {
     -3500, -2500, -1500, -500, 500, 1500, 2500, 3500
@@ -184,6 +211,9 @@ static h_line_runtime_calibration_t s_line_runtime_calibration;
 static bool s_h5_drive_permitted;
 static bool s_h5_feedforward_initialized;
 static bool s_h5_imu_reference_valid;
+static bool s_h5_launch_feedforward_released;
+static bool s_h4_ball_control_released;
+static uint32_t s_h5_launch_stable_ms;
 static uint32_t s_h5_last_feedforward_ms;
 static uint32_t s_h5_drive_start_ms;
 static uint8_t s_h5_active_mission;
@@ -195,6 +225,7 @@ static float s_h5_planned_accel_mm_s2;
 static float s_h5_encoder_accel_mm_s2;
 static float s_h5_imu_accel_mm_s2;
 static float s_h5_feedforward_millidegrees;
+static int32_t s_h5_turn_feedforward_millidegrees;
 
 static int16_t HMission_ClampI16(int32_t value, int16_t minimum,
     int16_t maximum)
@@ -273,7 +304,8 @@ static float HMission_H5ProfileAccelerationMmS2(uint8_t mission_slot)
     if (mission_slot == (uint8_t) H_MISSION_AB_CENTER) {
         target_delta_deci_rpm = H_AB_CRUISE_TARGET_DECI_RPM -
             H_AB_START_TARGET_DECI_RPM;
-    } else if (mission_slot == (uint8_t) H_MISSION_LAP_CENTER) {
+    } else if (mission_slot == (uint8_t) H_MISSION_LAP_CENTER ||
+        mission_slot == (uint8_t) H_MISSION_LAP_HOLD) {
         target_delta_deci_rpm = H_BALANCE_CRUISE_TARGET_DECI_RPM -
             H_BALANCE_START_TARGET_DECI_RPM;
     } else {
@@ -291,6 +323,13 @@ static float HMission_H5ProfileFeedforward(uint8_t mission_slot)
             H5_MILLIDEGREES_PER_ACCEL_MM_S2 * H5_FEEDFORWARD_MODEL_GAIN,
         -H5_FEEDFORWARD_MAXIMUM_MILLIDEGREES,
         H5_FEEDFORWARD_MAXIMUM_MILLIDEGREES);
+}
+
+static float HMission_H5LaunchFeedforward(uint8_t mission_slot)
+{
+    return mission_slot == (uint8_t) H_MISSION_AB_CENTER ?
+        H_AB_LAUNCH_FEEDFORWARD_MILLIDEGREES :
+        HMission_H5ProfileFeedforward(mission_slot);
 }
 
 static void HMission_UpdateH5ImuReference(void)
@@ -314,6 +353,9 @@ static void HMission_ResetH5Feedforward(uint32_t now_ms)
     s_h5_drive_permitted = false;
     s_h5_feedforward_initialized = false;
     s_h5_imu_reference_valid = false;
+    s_h5_launch_feedforward_released = false;
+    s_h4_ball_control_released = false;
+    s_h5_launch_stable_ms = 0U;
     s_h5_last_feedforward_ms = now_ms;
     s_h5_drive_start_ms = now_ms;
     s_h5_active_mission = (uint8_t) H_MISSION_COUNT;
@@ -326,6 +368,7 @@ static void HMission_ResetH5Feedforward(uint32_t now_ms)
     s_h5_encoder_accel_mm_s2 = 0.0f;
     s_h5_imu_accel_mm_s2 = 0.0f;
     s_h5_feedforward_millidegrees = 0.0f;
+    s_h5_turn_feedforward_millidegrees = 0.0f;
     g_h_mission_diag.h5_feedforward_millidegrees = 0;
     g_h_mission_diag.h5_planned_accel_mm_s2 = 0;
     g_h_mission_diag.h5_imu_accel_mm_s2 = 0;
@@ -343,6 +386,9 @@ static void HMission_PrepareH5Drive(uint32_t now_ms, uint8_t mission_slot)
 
     s_h5_drive_permitted = true;
     s_h5_feedforward_initialized = true;
+    s_h5_launch_feedforward_released = false;
+    s_h4_ball_control_released = false;
+    s_h5_launch_stable_ms = 0U;
     s_h5_last_feedforward_ms = now_ms - H_LINE_COMMAND_PERIOD_MS;
     s_h5_drive_start_ms = now_ms;
     s_h5_active_mission = mission_slot;
@@ -354,7 +400,8 @@ static void HMission_PrepareH5Drive(uint32_t now_ms, uint8_t mission_slot)
     s_h5_encoder_accel_mm_s2 = 0.0f;
     s_h5_imu_accel_mm_s2 = 0.0f;
     s_h5_feedforward_millidegrees =
-        HMission_H5ProfileFeedforward(mission_slot);
+        HMission_H5LaunchFeedforward(mission_slot);
+    s_h5_turn_feedforward_millidegrees = 0.0f;
     g_h_mission_diag.h5_feedforward_millidegrees =
         HMission_RoundClampI16(s_h5_feedforward_millidegrees);
     g_h_mission_diag.h5_drive_permitted = 1U;
@@ -371,6 +418,7 @@ static void HMission_PrepareH5Drive(uint32_t now_ms, uint8_t mission_slot)
 
 static void HMission_UpdateH5Feedforward(uint32_t now_ms)
 {
+    ball_balance_snapshot_t ball;
     imu_service_snapshot_t imu;
     uint32_t elapsed_ms;
     uint32_t drive_elapsed_ms;
@@ -388,6 +436,12 @@ static void HMission_UpdateH5Feedforward(uint32_t now_ms)
     float feedback_scale;
     float maximum_delta;
     float delta;
+    float ball_error_mm = 0.0f;
+    float launch_error_boost = 0.0f;
+    float launch_feedforward;
+    int32_t turn_target;
+    uint32_t turn_maximum_delta;
+    bool ball_valid = false;
     bool imu_valid = false;
 
     if (!s_h5_drive_permitted) {
@@ -434,6 +488,32 @@ static void HMission_UpdateH5Feedforward(uint32_t now_ms)
     encoder_raw = HMission_ClampFloat(
         (measured_speed_mm_s - s_h5_previous_measured_speed_mm_s) / dt_s,
         -H5_ACCELERATION_LIMIT_MM_S2, H5_ACCELERATION_LIMIT_MM_S2);
+    if (BallBalanceService_GetSnapshot(&ball) &&
+        ball.vision_valid != 0U) {
+        ball_error_mm = ((float) ball.target_position_decimm -
+            (float) ball.measured_position_decimm) * 0.1f;
+        ball_valid = true;
+    }
+    if (!s_h5_launch_feedforward_released && ball_valid &&
+        drive_elapsed_ms >= H_LAUNCH_MINIMUM_HOLD_MS &&
+        HMission_AbsFloat(target_speed_mm_s - measured_speed_mm_s) <=
+            H_LAUNCH_SPEED_ERROR_BAND_MM_S &&
+        HMission_AbsFloat(ball_error_mm) <= H_LAUNCH_BALL_ERROR_BAND_MM &&
+        HMission_AbsFloat((float) ball.velocity_mm_s) <=
+            H_LAUNCH_BALL_VELOCITY_BAND_MM_S) {
+        s_h5_launch_stable_ms += elapsed_ms;
+        if (s_h5_launch_stable_ms >= H_LAUNCH_STABLE_CONFIRM_MS) {
+            s_h5_launch_feedforward_released = true;
+        }
+    } else if (!s_h5_launch_feedforward_released) {
+        s_h5_launch_stable_ms = 0U;
+    }
+    /* Do not let a bad/slow vision sample keep the fixed launch bias
+       forever; hand over to the measured acceleration model smoothly. */
+    if (!s_h5_launch_feedforward_released &&
+        drive_elapsed_ms >= H_LAUNCH_MAXIMUM_HOLD_MS) {
+        s_h5_launch_feedforward_released = true;
+    }
     if (ImuService_GetSnapshot(&imu) && imu.valid != 0U &&
         imu.calibrated != 0U && s_h5_imu_reference_valid) {
         imu_raw = HMission_ClampFloat(
@@ -451,7 +531,15 @@ static void HMission_UpdateH5Feedforward(uint32_t now_ms)
         0.18f * (encoder_raw - s_h5_encoder_accel_mm_s2);
     s_h5_imu_accel_mm_s2 +=
         0.12f * (imu_raw - s_h5_imu_accel_mm_s2);
-    if (imu_valid) {
+    if (s_h5_active_mission == (uint8_t) H_MISSION_AB_CENTER && imu_valid) {
+        blended_accel = 0.20f * s_h5_planned_accel_mm_s2 +
+            0.50f * s_h5_encoder_accel_mm_s2 +
+            0.30f * s_h5_imu_accel_mm_s2;
+    } else if (s_h5_active_mission ==
+            (uint8_t) H_MISSION_AB_CENTER) {
+        blended_accel = 0.30f * s_h5_planned_accel_mm_s2 +
+            0.70f * s_h5_encoder_accel_mm_s2;
+    } else if (imu_valid) {
         blended_accel = 0.50f * s_h5_planned_accel_mm_s2 +
             0.30f * s_h5_encoder_accel_mm_s2 +
             0.20f * s_h5_imu_accel_mm_s2;
@@ -459,7 +547,11 @@ static void HMission_UpdateH5Feedforward(uint32_t now_ms)
         blended_accel = 0.625f * s_h5_planned_accel_mm_s2 +
             0.375f * s_h5_encoder_accel_mm_s2;
     }
-    if (drive_elapsed_ms < H5_LAUNCH_PLAN_ONLY_MS) {
+    launch_feedforward = HMission_H5LaunchFeedforward(
+        s_h5_active_mission);
+    if (!s_h5_launch_feedforward_released) {
+        target_feedforward = launch_feedforward;
+    } else if (drive_elapsed_ms < H5_LAUNCH_PLAN_ONLY_MS) {
         target_feedforward = profile_feedforward;
     } else {
         target_feedforward = HMission_ClampFloat(
@@ -472,6 +564,45 @@ static void HMission_UpdateH5Feedforward(uint32_t now_ms)
             target_feedforward = profile_feedforward;
         }
     }
+    if (!s_h5_launch_feedforward_released && ball_valid) {
+        launch_error_boost = HMission_ClampFloat(
+            ball_error_mm * H_LAUNCH_ERROR_BOOST_MDEG_PER_MM,
+            -H_LAUNCH_ERROR_BOOST_MAX_MDEG,
+            H_LAUNCH_ERROR_BOOST_MAX_MDEG);
+        target_feedforward += launch_error_boost;
+    }
+    if (s_h5_active_mission == (uint8_t) H_MISSION_AB_CENTER ||
+        s_h5_active_mission == (uint8_t) H_MISSION_LAP_CENTER ||
+        s_h5_active_mission == (uint8_t) H_MISSION_LAP_HOLD) {
+        turn_target = (int32_t) g_h_mission_diag.line_correction_deci_rpm *
+            H_TURN_FEEDFORWARD_MDEG_PER_DECI_RPM;
+        if (turn_target > H_TURN_FEEDFORWARD_MAX_MDEG) {
+            turn_target = H_TURN_FEEDFORWARD_MAX_MDEG;
+        } else if (turn_target < -H_TURN_FEEDFORWARD_MAX_MDEG) {
+            turn_target = -H_TURN_FEEDFORWARD_MAX_MDEG;
+        }
+        turn_maximum_delta = (turn_target == 0 ?
+            H_TURN_FEEDFORWARD_RELEASE_MDEG_PER_S :
+            H_TURN_FEEDFORWARD_ATTACK_MDEG_PER_S) * elapsed_ms / 1000U;
+        if (turn_maximum_delta == 0U) {
+            turn_maximum_delta = 1U;
+        }
+        if (turn_target > s_h5_turn_feedforward_millidegrees +
+                (int32_t) turn_maximum_delta) {
+            s_h5_turn_feedforward_millidegrees +=
+                (int32_t) turn_maximum_delta;
+        } else if (turn_target < s_h5_turn_feedforward_millidegrees -
+                (int32_t) turn_maximum_delta) {
+            s_h5_turn_feedforward_millidegrees -=
+                (int32_t) turn_maximum_delta;
+        } else {
+            s_h5_turn_feedforward_millidegrees = turn_target;
+        }
+        target_feedforward += (float) s_h5_turn_feedforward_millidegrees;
+    }
+    target_feedforward = HMission_ClampFloat(target_feedforward,
+        -H5_FEEDFORWARD_MAXIMUM_MILLIDEGREES,
+        H5_FEEDFORWARD_MAXIMUM_MILLIDEGREES);
     maximum_delta = H5_FEEDFORWARD_SLEW_MILLIDEGREES_PER_S * dt_s;
     delta = HMission_ClampFloat(
         target_feedforward - s_h5_feedforward_millidegrees,
@@ -515,22 +646,30 @@ static bool HMission_IsLineFollowingMission(uint8_t slot)
 static bool HMission_UsesBallDrive(uint8_t slot)
 {
     return slot == (uint8_t) H_MISSION_AB_CENTER ||
-        slot == (uint8_t) H_MISSION_LAP_CENTER;
+        slot == (uint8_t) H_MISSION_LAP_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_HOLD;
 }
 
 /* H4 only needs ball stabilization through the AB segment. */
 static bool HMission_BallControlActive(uint8_t slot)
 {
     if (slot == (uint8_t) H_MISSION_AB_CENTER) {
-        return g_h_mission_diag.ab_passed == 0U;
+        return s_h4_ball_control_released == false;
     }
-    return slot == (uint8_t) H_MISSION_LAP_CENTER;
+    return slot == (uint8_t) H_MISSION_LAP_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_HOLD;
 }
 
 static bool HMission_IsBalanceLapMission(uint8_t slot)
 {
     return slot == (uint8_t) H_MISSION_LAP_CENTER ||
         slot == (uint8_t) H_MISSION_LAP_HOLD;
+}
+
+static bool HMission_ContinuesPastLapFinish(uint8_t slot)
+{
+    return slot == (uint8_t) H_MISSION_AB_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_CENTER;
 }
 
 static h_mission_context_t *HMission_GetActiveLineMission(void)
@@ -626,7 +765,7 @@ static int16_t HMission_SelectBaseTarget(int32_t steering_error,
 {
     int32_t magnitude = steering_error < 0 ?
         -steering_error : steering_error;
-    bool finish_slow =
+    bool finish_slow = !HMission_ContinuesPastLapFinish(mission_slot) &&
         (g_h_mission_diag.line_progress_mm >=
                 H_LINE_FINISH_SLOW_DISTANCE_MM &&
             g_h_mission_diag.line_yaw_valid != 0U &&
@@ -763,6 +902,11 @@ static bool HMission_CalibrationValid(
     if (calibration == NULL || calibration->valid_mask != 0xFFU) {
         return false;
     }
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_ADC8
+    if (calibration->reserved[0] != H_LINE_CALIBRATION_PROFILE_VERSION) {
+        return false;
+    }
+#endif
     for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT; channel++) {
         if (calibration->white[channel] < calibration->black[channel] ||
             (uint16_t) (calibration->white[channel] -
@@ -781,6 +925,9 @@ static bool HMission_SaveCalibration(void)
 
     memset(&calibration, 0, sizeof(calibration));
     calibration.valid_mask = g_h_mission_diag.line_calibration_mask;
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_ADC8
+    calibration.reserved[0] = H_LINE_CALIBRATION_PROFILE_VERSION;
+#endif
     for (channel = 0U; channel < H_MISSION_LINE_SENSOR_COUNT; channel++) {
         calibration.black[channel] =
             g_h_mission_diag.line_calibration_black[channel];
@@ -807,6 +954,9 @@ static void HMission_ApplyRuntimeCalibration(void)
         }
     }
     candidate->valid_mask = mask;
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_ADC8
+    candidate->reserved[0] = H_LINE_CALIBRATION_PROFILE_VERSION;
+#endif
     g_h_mission_diag.line_runtime_calibration_mask = mask;
     if (!HMission_CalibrationValid(candidate)) {
         g_h_mission_diag.line_runtime_calibration_failure_count++;
@@ -825,6 +975,12 @@ static void HMission_ApplyRuntimeCalibration(void)
     g_h_mission_diag.line_runtime_calibration_applied = 1U;
     g_h_mission_diag.line_runtime_calibration_state =
         (uint8_t) H_LINE_RUNTIME_CAL_COMPLETE;
+    if (HMission_SaveCalibration()) {
+        g_h_mission_diag.line_calibration_saved = 1U;
+        g_h_mission_diag.line_calibration_save_count++;
+    } else {
+        g_h_mission_diag.line_calibration_save_failure_count++;
+    }
     s_line_calibration_collecting = false;
     s_line_filter_initialized = false;
 }
@@ -1081,9 +1237,15 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
     steering_error = HMission_ClampI16(filtered + derivative_term,
         -3500, 3500);
     if (ab_segment) {
-        /* Keep H4's AB launch straight; ball control owns the tilt. */
+        /* Ignore center noise, but recover before a tilted launch loses line. */
         derivative_term = 0;
-        steering_error = 0;
+        if (filtered > H_AB_GUARD_DEADBAND_MILLI) {
+            steering_error = filtered - H_AB_GUARD_DEADBAND_MILLI;
+        } else if (filtered < -H_AB_GUARD_DEADBAND_MILLI) {
+            steering_error = filtered + H_AB_GUARD_DEADBAND_MILLI;
+        } else {
+            steering_error = 0;
+        }
     }
     if ((filtered > H_LINE_CENTER_DEADBAND_MILLI &&
             steering_error < 0) ||
@@ -1114,9 +1276,9 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
     g_h_mission_diag.line_base_target_deci_rpm = base_target;
     g_h_mission_diag.line_speed_phase = s_line_speed_phase;
     if (ab_segment) {
-        correction_limit = straight_control ?
-            H_AB_STRAIGHT_MAX_CORRECTION_DECI_RPM :
-            H_AB_MAX_CORRECTION_DECI_RPM;
+        correction_limit = H_AB_GUARD_MAX_CORRECTION_DECI_RPM;
+        correction_full_scale = H_AB_GUARD_FULL_SCALE_MILLI;
+        correction_attack_step = H_AB_GUARD_ATTACK_SLEW_DECI_RPM;
         if (correction_limit >
                 base_target - H_LINE_MINIMUM_TARGET_DECI_RPM) {
             correction_limit =
@@ -1189,16 +1351,21 @@ static bool HMission_Start(void *context)
         return false;
     }
     if (HMission_IsLineFollowingMission(mission->slot) &&
-        (g_h_mission_diag.line_calibration_mask != 0xFFU ||
-         g_h_mission_diag.line_valid == 0U)) {
+        g_h_mission_diag.line_calibration_mask != 0xFFU) {
+        return false;
+    }
+    if (HMission_IsLineFollowingMission(mission->slot) &&
+        mission->slot != (uint8_t) H_MISSION_AB_CENTER &&
+        g_h_mission_diag.line_valid == 0U) {
         return false;
     }
     if (HMission_UsesBallDrive(mission->slot)) {
         uint32_t now_us = BSP_Time_GetUs();
+        int16_t latched_target_decimm;
 
         ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
-        if (!BallBalanceService_CanStartPositionHold(now_us) ||
-            !BallBalanceService_RequestStartDrivePositionHold(0)) {
+        if (!BallBalanceService_RequestStartDrivePositionHoldCurrent(
+                now_us, &latched_target_decimm)) {
             return false;
         }
         HMission_ResetH5Feedforward(
@@ -1337,7 +1504,8 @@ static competition_mission_status_t HMission_Service(void *context,
         } else if (HMission_IsBalanceLapMission(mission->slot)) {
             g_h_mission_diag.balance_lap_elapsed_ms =
                 now_ms - s_line_run_start_ms;
-            if (g_h_mission_diag.line_terminal_status ==
+            if (!HMission_ContinuesPastLapFinish(mission->slot) &&
+                g_h_mission_diag.line_terminal_status ==
                     H_LINE_TERMINAL_NONE &&
                 g_h_mission_diag.balance_lap_elapsed_ms >=
                     H_BALANCE_TIMEOUT_MS) {
@@ -1538,6 +1706,16 @@ void HMissionService_Init(void)
     s_line_finish_mask_index = 0U;
     g_h_mission_diag.line_runtime_calibration_state =
         (uint8_t) H_LINE_RUNTIME_CAL_IDLE;
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_ADC8
+    for (slot = 0U; slot < H_MISSION_LINE_SENSOR_COUNT; slot++) {
+        g_h_mission_diag.line_calibration_black[slot] =
+            s_line_default_black[slot];
+        g_h_mission_diag.line_calibration_white[slot] =
+            s_line_default_white[slot];
+    }
+    g_h_mission_diag.line_calibration_mask = 0xFFU;
+    s_line_calibration_collecting = false;
+#endif
     if (CompetitionStorage_LoadReflectanceCalibration(&calibration) &&
         HMission_CalibrationValid(&calibration)) {
         for (slot = 0U; slot < H_MISSION_LINE_SENSOR_COUNT; slot++) {
@@ -1550,6 +1728,13 @@ void HMissionService_Init(void)
         g_h_mission_diag.line_calibration_loaded = 1U;
         g_h_mission_diag.line_calibration_saved = 1U;
         s_line_calibration_collecting = false;
+#if ECHO_REFLECTANCE_BACKEND == ECHO_REFLECTANCE_BACKEND_ADC8
+    } else if (HMission_SaveCalibration()) {
+        g_h_mission_diag.line_calibration_save_count++;
+        g_h_mission_diag.line_calibration_saved = 1U;
+    } else {
+        g_h_mission_diag.line_calibration_save_failure_count++;
+#endif
     }
     g_h_mission_diag.active_mission = H_MISSION_COUNT;
     for (slot = 0U; slot < H_MISSION_COUNT; slot++) {
@@ -1638,44 +1823,44 @@ void HMissionService_ProcessReflectance(
     s_line_progress_last_ms = now_ms;
     HMission_UpdateLineYawProgress();
 
-    if (line_mission->slot == (uint8_t) H_MISSION_LAP_CENTER &&
-        g_h_mission_diag.line_progress_mm >=
-            H5_BALANCE_TEST_DISTANCE_MM) {
-        g_h_mission_diag.line_finish_count++;
-        s_h5_planned_target_deci_rpm = 0;
-        if (!ChassisActuator_RequestControlledStop(
-                H_LINE_CONTROLLED_STOP_MS)) {
-            g_h_mission_diag.line_terminal_status = H_LINE_TERMINAL_FAULT;
-            ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_REJECTED);
-            BallBalanceService_ClearChassisFeedforward();
-            BallBalanceService_RequestAbort();
-            return;
-        }
-        g_h_mission_diag.line_terminal_status = H_LINE_TERMINAL_BRAKING;
-        g_h_mission_diag.line_braking = 1U;
-        return;
-    }
-
     if (line_mission->slot == (uint8_t) H_MISSION_AB_CENTER &&
         g_h_mission_diag.ab_passed == 0U) {
         g_h_mission_diag.ab_elapsed_ms = now_ms - s_line_run_start_ms;
         if (g_h_mission_diag.line_progress_mm >=
                 H_AB_TARGET_DISTANCE_MM) {
+            if (g_h_mission_diag.line_valid == 0U) {
+                /* Keep the straight AB drive until the line is reacquired. */
+                if (g_h_mission_diag.line_lost_streak < UINT8_MAX) {
+                    g_h_mission_diag.line_lost_streak++;
+                }
+                return;
+            }
             g_h_mission_diag.ab_passed = 1U;
             g_h_mission_diag.ab_pass_count++;
-            /* H4's ball requirement ends at AB; release only the ball axis. */
-            s_h5_planned_target_deci_rpm = 0;
-            BallBalanceService_ClearChassisFeedforward();
-            BallBalanceService_RequestAbort();
-            s_h5_drive_permitted = false;
-            g_h_mission_diag.h5_drive_permitted = 0U;
         } else {
-            /* AB is deliberately open-loop with respect to the line. */
+            /* AB keeps moving while its wide-deadband line guard is active. */
             g_h_mission_diag.line_lost_streak = 0U;
             (void) HMission_UpdateLineTargets(now_ms,
                 line_mission->slot);
             return;
         }
+    }
+
+    /* Keep the H4 ball axis through the first bend.  Releasing exactly at
+       AB caused the high-speed turn to arrive before the ball controller. */
+    if (line_mission->slot == (uint8_t) H_MISSION_AB_CENTER &&
+        g_h_mission_diag.ab_passed != 0U && !s_h4_ball_control_released &&
+        (g_h_mission_diag.line_progress_mm >=
+                H_AB_BALL_RELEASE_DISTANCE_MM ||
+         (g_h_mission_diag.line_yaw_valid != 0U &&
+          g_h_mission_diag.line_clockwise_yaw_deg >=
+                H_AB_BALL_RELEASE_YAW_DEG))) {
+        s_h4_ball_control_released = true;
+        s_h5_planned_target_deci_rpm = 0;
+        BallBalanceService_ClearChassisFeedforward();
+        BallBalanceService_RequestAbort();
+        s_h5_drive_permitted = false;
+        g_h_mission_diag.h5_drive_permitted = 0U;
     }
 
     if (g_h_mission_diag.line_start_cleared == 0U) {
@@ -1693,7 +1878,8 @@ void HMissionService_ProcessReflectance(
             g_h_mission_diag.line_start_clear_streak = 0U;
         }
     }
-    if (g_h_mission_diag.line_start_cleared != 0U &&
+    if (!HMission_ContinuesPastLapFinish(line_mission->slot) &&
+        g_h_mission_diag.line_start_cleared != 0U &&
         ((g_h_mission_diag.line_progress_mm >=
                 H_LINE_FINISH_ARM_DISTANCE_MM &&
           g_h_mission_diag.line_clockwise_yaw_deg >=

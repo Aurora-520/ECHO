@@ -88,6 +88,8 @@ bool BallBalanceService_CanStartPositionHold(uint32_t now_us);
 bool BallBalanceService_RequestStartPositionHold(int16_t target_decimm);
 bool BallBalanceService_RequestStartDrivePositionHold(
     int16_t target_decimm);
+bool BallBalanceService_RequestStartDrivePositionHoldCurrent(
+    uint32_t now_us, int16_t *latched_target_decimm);
 bool BallBalanceService_IsTargetSettled(void);
 bool BallBalanceService_IsDriveHoldReady(void);
 bool BallBalanceService_SetChassisFeedforward(

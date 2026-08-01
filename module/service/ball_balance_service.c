@@ -862,6 +862,29 @@ bool BallBalanceService_RequestStartDrivePositionHold(
     return true;
 }
 
+bool BallBalanceService_RequestStartDrivePositionHoldCurrent(
+    uint32_t now_us, int16_t *latched_target_decimm)
+{
+    ball_vision_snapshot_t vision;
+
+    if (g_ball_balance_diag.initialized == 0U ||
+        g_ball_balance_diag.start_requested != 0U ||
+        g_zdt_stepper_diag.shutdown_pending != 0U ||
+        !BallBalance_VisionStartReady(now_us, &vision) ||
+        BallBalance_AbsI32(vision.position_decimm) >
+            H_BALL_HOLD_TARGET_LIMIT_DECIMM) {
+        return false;
+    }
+    s_requested_mode = (uint8_t) BALL_BALANCE_MODE_POSITION_HOLD;
+    s_requested_drive_hold = 1U;
+    s_requested_target_decimm = vision.position_decimm;
+    g_ball_balance_diag.start_requested = 1U;
+    if (latched_target_decimm != NULL) {
+        *latched_target_decimm = vision.position_decimm;
+    }
+    return true;
+}
+
 bool BallBalanceService_IsTargetSettled(void)
 {
     bool settled;
