@@ -132,14 +132,6 @@ typedef struct {
 #define H_AB_RAMP_MS                            2600U
 #define H_AB_TARGET_DISTANCE_MM               1500.0f
 #define H_AB_TIMEOUT_MS                         7500U
-#define H_AB_DERIVATIVE_LEAD_SCANS                 8
-#define H_AB_MAX_CORRECTION_DECI_RPM             350
-#define H_AB_STRAIGHT_DERIVATIVE_LEAD_SCANS         5
-#define H_AB_STRAIGHT_MAX_CORRECTION_DECI_RPM     250
-#define H_AB_GUARD_DEADBAND_MILLI                  700
-#define H_AB_GUARD_FULL_SCALE_MILLI               2000
-#define H_AB_GUARD_MAX_CORRECTION_DECI_RPM         200
-#define H_AB_GUARD_ATTACK_SLEW_DECI_RPM             30
 #define H_BALANCE_START_TARGET_DECI_RPM           200
 #define H_BALANCE_CRUISE_TARGET_DECI_RPM          700
 #define H_BALANCE_RAMP_MS                        2600U
@@ -157,7 +149,6 @@ typedef struct {
 #define H5_LAUNCH_PLAN_ONLY_MS                         150U
 #define H5_LAUNCH_FEEDBACK_BLEND_MS                    250U
 #define H5_LAUNCH_INITIAL_FEEDBACK_SCALE               1.0f
-#define H_AB_LAUNCH_FEEDFORWARD_MILLIDEGREES        10000.0f
 #define H_AB_BALL_RELEASE_DISTANCE_MM              2500.0f
 #define H_AB_BALL_RELEASE_YAW_DEG                    50.0f
 #define H_LAUNCH_MINIMUM_HOLD_MS                         300U
@@ -327,9 +318,7 @@ static float HMission_H5ProfileFeedforward(uint8_t mission_slot)
 
 static float HMission_H5LaunchFeedforward(uint8_t mission_slot)
 {
-    return mission_slot == (uint8_t) H_MISSION_AB_CENTER ?
-        H_AB_LAUNCH_FEEDFORWARD_MILLIDEGREES :
-        HMission_H5ProfileFeedforward(mission_slot);
+    return HMission_H5ProfileFeedforward(mission_slot);
 }
 
 static void HMission_UpdateH5ImuReference(void)
@@ -774,32 +763,17 @@ static int16_t HMission_SelectBaseTarget(int32_t steering_error,
         g_h_mission_diag.line_progress_mm >=
             H_LINE_FINISH_SLOW_FALLBACK_MM;
 
-    if (mission_slot == (uint8_t) H_MISSION_AB_CENTER &&
-        g_h_mission_diag.ab_passed == 0U) {
+    if ((mission_slot == (uint8_t) H_MISSION_AB_CENTER &&
+            g_h_mission_diag.ab_passed == 0U) ||
+        HMission_IsBalanceLapMission(mission_slot)) {
         uint32_t elapsed_ms = now_ms - s_line_run_start_ms;
 
-        if (elapsed_ms < H_AB_RAMP_MS) {
-            int32_t target = H_AB_START_TARGET_DECI_RPM +
-                (int32_t) ((uint32_t) (
-                    H_AB_CRUISE_TARGET_DECI_RPM -
-                    H_AB_START_TARGET_DECI_RPM) * elapsed_ms /
-                    H_AB_RAMP_MS);
-
-            s_line_speed_phase = (uint8_t) H_LINE_SPEED_LAUNCH;
-            return (int16_t) target;
-        }
-        s_line_speed_phase = (uint8_t) H_LINE_SPEED_CRUISE;
-        return H_AB_CRUISE_TARGET_DECI_RPM;
-    }
-    if (HMission_IsBalanceLapMission(mission_slot)) {
-        uint32_t elapsed_ms = now_ms - s_line_run_start_ms;
-
-        if (elapsed_ms < H_BALANCE_RAMP_MS) {
+        if (elapsed_ms < HMission_H5RampMs(mission_slot)) {
             int32_t target = H_BALANCE_START_TARGET_DECI_RPM +
                 (int32_t) ((uint32_t) (
                     H_BALANCE_CRUISE_TARGET_DECI_RPM -
                     H_BALANCE_START_TARGET_DECI_RPM) * elapsed_ms /
-                    H_BALANCE_RAMP_MS);
+                    HMission_H5RampMs(mission_slot));
 
             s_line_speed_phase = (uint8_t) H_LINE_SPEED_LAUNCH;
             return (int16_t) target;
@@ -1211,13 +1185,10 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
     }
     g_h_mission_diag.line_filtered_position_milli = (int16_t) filtered;
     straight_control = HMission_IsStraightControlRegion(filtered);
-    ab_segment = mission_slot == (uint8_t) H_MISSION_AB_CENTER &&
-        g_h_mission_diag.ab_passed == 0U;
+    ab_segment = (mission_slot == (uint8_t) H_MISSION_AB_CENTER &&
+            g_h_mission_diag.ab_passed == 0U) ||
+        HMission_IsBalanceLapMission(mission_slot);
     if (ab_segment) {
-        derivative_lead_scans = straight_control ?
-            H_AB_STRAIGHT_DERIVATIVE_LEAD_SCANS :
-            H_AB_DERIVATIVE_LEAD_SCANS;
-    } else if (HMission_IsBalanceLapMission(mission_slot)) {
         derivative_lead_scans = straight_control ?
             H_BALANCE_STRAIGHT_DERIVATIVE_LEAD_SCANS :
             H_BALANCE_DERIVATIVE_LEAD_SCANS;
@@ -1236,17 +1207,6 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
         H_LINE_DERIVATIVE_LIMIT_MILLI);
     steering_error = HMission_ClampI16(filtered + derivative_term,
         -3500, 3500);
-    if (ab_segment) {
-        /* Ignore center noise, but recover before a tilted launch loses line. */
-        derivative_term = 0;
-        if (filtered > H_AB_GUARD_DEADBAND_MILLI) {
-            steering_error = filtered - H_AB_GUARD_DEADBAND_MILLI;
-        } else if (filtered < -H_AB_GUARD_DEADBAND_MILLI) {
-            steering_error = filtered + H_AB_GUARD_DEADBAND_MILLI;
-        } else {
-            steering_error = 0;
-        }
-    }
     if ((filtered > H_LINE_CENTER_DEADBAND_MILLI &&
             steering_error < 0) ||
         (filtered < -H_LINE_CENTER_DEADBAND_MILLI &&
@@ -1276,15 +1236,6 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
     g_h_mission_diag.line_base_target_deci_rpm = base_target;
     g_h_mission_diag.line_speed_phase = s_line_speed_phase;
     if (ab_segment) {
-        correction_limit = H_AB_GUARD_MAX_CORRECTION_DECI_RPM;
-        correction_full_scale = H_AB_GUARD_FULL_SCALE_MILLI;
-        correction_attack_step = H_AB_GUARD_ATTACK_SLEW_DECI_RPM;
-        if (correction_limit >
-                base_target - H_LINE_MINIMUM_TARGET_DECI_RPM) {
-            correction_limit =
-                base_target - H_LINE_MINIMUM_TARGET_DECI_RPM;
-        }
-    } else if (HMission_IsBalanceLapMission(mission_slot)) {
         correction_limit = straight_control ?
             H_BALANCE_STRAIGHT_MAX_CORRECTION_DECI_RPM :
             H_BALANCE_MAX_CORRECTION_DECI_RPM;
