@@ -21,11 +21,11 @@
 #define ECHO_IMU_DIAGNOSTIC_CAPTURE 0U
 
 /*
- * Formal competition firmware must not abort a mission on button input.
- * Set this to 1U only for a debug build that needs any-key task abort.
+ * Debug firmware aborts a running/countdown mission on any physical key.
+ * Set this to 0U for a locked competition build.
  */
 #ifndef ECHO_COMPETITION_ENABLE_BUTTON_ABORT
-#define ECHO_COMPETITION_ENABLE_BUTTON_ABORT 0U
+#define ECHO_COMPETITION_ENABLE_BUTTON_ABORT 1U
 #endif
 #if (ECHO_COMPETITION_ENABLE_BUTTON_ABORT != 0U) && \
     (ECHO_COMPETITION_ENABLE_BUTTON_ABORT != 1U)
