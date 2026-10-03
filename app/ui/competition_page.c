@@ -5,7 +5,7 @@
 #include "h_mission_service.h"
 #include "imu_service.h"
 #include "ssd1306.h"
-
+//shiyan
 #define COMPETITION_UI_LINE_CHARS 21U
 
 typedef struct {
