@@ -95,7 +95,7 @@ typedef struct {
 #define H_LINE_LOST_STOP_SCANS                5U
 #define H_LINE_FINISH_WINDOW_SCANS             5U
 #define H_LINE_FINISH_STRONG_RUN               4U
-#define H_LINE_FINISH_STRONG_CONFIRM           2U
+#define H_LINE_FINISH_STRONG_CONFIRM           4U
 #define H_LINE_START_CLEAR_MAXIMUM_ACTIVE     3U
 #define H_LINE_START_CLEAR_CONFIRM_SCANS      5U
 #define H_LINE_FINISH_ARM_DISTANCE_MM       4500.0f
@@ -127,14 +127,10 @@ typedef struct {
 #define H_LINE_RUNTIME_WHITE_MINIMUM_SAMPLES     30U
 #define H_LINE_RUNTIME_BLACK_MINIMUM_SAMPLES     30U
 #define H_LINE_WHEEL_CIRCUMFERENCE_MM       204.2035f
-#define H_AB_START_TARGET_DECI_RPM              200
-#define H_AB_CRUISE_TARGET_DECI_RPM             700
-#define H_AB_RAMP_MS                            2600U
 #define H_AB_TARGET_DISTANCE_MM               1500.0f
-#define H_AB_TIMEOUT_MS                         7500U
-#define H_BALANCE_START_TARGET_DECI_RPM           200
+#define H_BALANCE_START_TARGET_DECI_RPM           100
 #define H_BALANCE_CRUISE_TARGET_DECI_RPM          700
-#define H_BALANCE_RAMP_MS                        2600U
+#define H_BALANCE_RAMP_MS                        3000U
 #define H_BALANCE_TIMEOUT_MS                    29000U
 #define H_BALANCE_DERIVATIVE_LEAD_SCANS             12
 #define H_BALANCE_MAX_CORRECTION_DECI_RPM         500
@@ -149,8 +145,6 @@ typedef struct {
 #define H5_LAUNCH_PLAN_ONLY_MS                         150U
 #define H5_LAUNCH_FEEDBACK_BLEND_MS                    250U
 #define H5_LAUNCH_INITIAL_FEEDBACK_SCALE               1.0f
-#define H_AB_BALL_RELEASE_DISTANCE_MM              2500.0f
-#define H_AB_BALL_RELEASE_YAW_DEG                    50.0f
 #define H_LAUNCH_MINIMUM_HOLD_MS                         300U
 #define H_LAUNCH_MAXIMUM_HOLD_MS                       1200U
 #define H_LAUNCH_BALL_ERROR_BAND_MM                       8.0f
@@ -203,7 +197,6 @@ static bool s_h5_drive_permitted;
 static bool s_h5_feedforward_initialized;
 static bool s_h5_imu_reference_valid;
 static bool s_h5_launch_feedforward_released;
-static bool s_h4_ball_control_released;
 static uint32_t s_h5_launch_stable_ms;
 static uint32_t s_h5_last_feedforward_ms;
 static uint32_t s_h5_drive_start_ms;
@@ -283,8 +276,8 @@ static float HMission_AverageMeasuredSpeedMmS(void)
 
 static uint32_t HMission_H5RampMs(uint8_t mission_slot)
 {
-    return mission_slot == (uint8_t) H_MISSION_AB_CENTER ?
-        H_AB_RAMP_MS : H_BALANCE_RAMP_MS;
+    (void) mission_slot;
+    return H_BALANCE_RAMP_MS;
 }
 
 static float HMission_H5ProfileAccelerationMmS2(uint8_t mission_slot)
@@ -292,10 +285,8 @@ static float HMission_H5ProfileAccelerationMmS2(uint8_t mission_slot)
     int32_t target_delta_deci_rpm;
     uint32_t ramp_ms = HMission_H5RampMs(mission_slot);
 
-    if (mission_slot == (uint8_t) H_MISSION_AB_CENTER) {
-        target_delta_deci_rpm = H_AB_CRUISE_TARGET_DECI_RPM -
-            H_AB_START_TARGET_DECI_RPM;
-    } else if (mission_slot == (uint8_t) H_MISSION_LAP_CENTER ||
+    if (mission_slot == (uint8_t) H_MISSION_AB_CENTER ||
+        mission_slot == (uint8_t) H_MISSION_LAP_CENTER ||
         mission_slot == (uint8_t) H_MISSION_LAP_HOLD) {
         target_delta_deci_rpm = H_BALANCE_CRUISE_TARGET_DECI_RPM -
             H_BALANCE_START_TARGET_DECI_RPM;
@@ -343,7 +334,6 @@ static void HMission_ResetH5Feedforward(uint32_t now_ms)
     s_h5_feedforward_initialized = false;
     s_h5_imu_reference_valid = false;
     s_h5_launch_feedforward_released = false;
-    s_h4_ball_control_released = false;
     s_h5_launch_stable_ms = 0U;
     s_h5_last_feedforward_ms = now_ms;
     s_h5_drive_start_ms = now_ms;
@@ -376,7 +366,6 @@ static void HMission_PrepareH5Drive(uint32_t now_ms, uint8_t mission_slot)
     s_h5_drive_permitted = true;
     s_h5_feedforward_initialized = true;
     s_h5_launch_feedforward_released = false;
-    s_h4_ball_control_released = false;
     s_h5_launch_stable_ms = 0U;
     s_h5_last_feedforward_ms = now_ms - H_LINE_COMMAND_PERIOD_MS;
     s_h5_drive_start_ms = now_ms;
@@ -520,15 +509,7 @@ static void HMission_UpdateH5Feedforward(uint32_t now_ms)
         0.18f * (encoder_raw - s_h5_encoder_accel_mm_s2);
     s_h5_imu_accel_mm_s2 +=
         0.12f * (imu_raw - s_h5_imu_accel_mm_s2);
-    if (s_h5_active_mission == (uint8_t) H_MISSION_AB_CENTER && imu_valid) {
-        blended_accel = 0.20f * s_h5_planned_accel_mm_s2 +
-            0.50f * s_h5_encoder_accel_mm_s2 +
-            0.30f * s_h5_imu_accel_mm_s2;
-    } else if (s_h5_active_mission ==
-            (uint8_t) H_MISSION_AB_CENTER) {
-        blended_accel = 0.30f * s_h5_planned_accel_mm_s2 +
-            0.70f * s_h5_encoder_accel_mm_s2;
-    } else if (imu_valid) {
+    if (imu_valid) {
         blended_accel = 0.50f * s_h5_planned_accel_mm_s2 +
             0.30f * s_h5_encoder_accel_mm_s2 +
             0.20f * s_h5_imu_accel_mm_s2;
@@ -639,26 +620,26 @@ static bool HMission_UsesBallDrive(uint8_t slot)
         slot == (uint8_t) H_MISSION_LAP_HOLD;
 }
 
-/* H4 only needs ball stabilization through the AB segment. */
+/* H4, H5 and H6 share one drive-hold control path. */
 static bool HMission_BallControlActive(uint8_t slot)
 {
-    if (slot == (uint8_t) H_MISSION_AB_CENTER) {
-        return s_h4_ball_control_released == false;
-    }
-    return slot == (uint8_t) H_MISSION_LAP_CENTER ||
+    return slot == (uint8_t) H_MISSION_AB_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_CENTER ||
         slot == (uint8_t) H_MISSION_LAP_HOLD;
 }
 
 static bool HMission_IsBalanceLapMission(uint8_t slot)
 {
-    return slot == (uint8_t) H_MISSION_LAP_CENTER ||
+    return slot == (uint8_t) H_MISSION_AB_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_CENTER ||
         slot == (uint8_t) H_MISSION_LAP_HOLD;
 }
 
 static bool HMission_ContinuesPastLapFinish(uint8_t slot)
 {
     return slot == (uint8_t) H_MISSION_AB_CENTER ||
-        slot == (uint8_t) H_MISSION_LAP_CENTER;
+        slot == (uint8_t) H_MISSION_LAP_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_HOLD;
 }
 
 static h_mission_context_t *HMission_GetActiveLineMission(void)
@@ -763,9 +744,7 @@ static int16_t HMission_SelectBaseTarget(int32_t steering_error,
         g_h_mission_diag.line_progress_mm >=
             H_LINE_FINISH_SLOW_FALLBACK_MM;
 
-    if ((mission_slot == (uint8_t) H_MISSION_AB_CENTER &&
-            g_h_mission_diag.ab_passed == 0U) ||
-        HMission_IsBalanceLapMission(mission_slot)) {
+    if (HMission_IsBalanceLapMission(mission_slot)) {
         uint32_t elapsed_ms = now_ms - s_line_run_start_ms;
 
         if (elapsed_ms < HMission_H5RampMs(mission_slot)) {
@@ -1185,9 +1164,7 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
     }
     g_h_mission_diag.line_filtered_position_milli = (int16_t) filtered;
     straight_control = HMission_IsStraightControlRegion(filtered);
-    ab_segment = (mission_slot == (uint8_t) H_MISSION_AB_CENTER &&
-            g_h_mission_diag.ab_passed == 0U) ||
-        HMission_IsBalanceLapMission(mission_slot);
+    ab_segment = HMission_IsBalanceLapMission(mission_slot);
     if (ab_segment) {
         derivative_lead_scans = straight_control ?
             H_BALANCE_STRAIGHT_DERIVATIVE_LEAD_SCANS :
@@ -1440,19 +1417,7 @@ static competition_mission_status_t HMission_Service(void *context,
         }
     }
     if (HMission_IsLineFollowingMission(mission->slot)) {
-        if (mission->slot == (uint8_t) H_MISSION_AB_CENTER &&
-            g_h_mission_diag.ab_passed == 0U) {
-            g_h_mission_diag.ab_elapsed_ms = now_ms - s_line_run_start_ms;
-            if (g_h_mission_diag.line_terminal_status ==
-                    H_LINE_TERMINAL_NONE &&
-                g_h_mission_diag.ab_elapsed_ms >= H_AB_TIMEOUT_MS) {
-                g_h_mission_diag.ab_timeout_count++;
-                g_h_mission_diag.line_terminal_status =
-                    H_LINE_TERMINAL_FAULT;
-                ChassisActuator_ForceSafe(
-                    CHASSIS_ACTUATOR_STOP_REJECTED);
-            }
-        } else if (HMission_IsBalanceLapMission(mission->slot)) {
+        if (HMission_IsBalanceLapMission(mission->slot)) {
             g_h_mission_diag.balance_lap_elapsed_ms =
                 now_ms - s_line_run_start_ms;
             if (!HMission_ContinuesPastLapFinish(mission->slot) &&
@@ -1778,40 +1743,11 @@ void HMissionService_ProcessReflectance(
         g_h_mission_diag.ab_passed == 0U) {
         g_h_mission_diag.ab_elapsed_ms = now_ms - s_line_run_start_ms;
         if (g_h_mission_diag.line_progress_mm >=
-                H_AB_TARGET_DISTANCE_MM) {
-            if (g_h_mission_diag.line_valid == 0U) {
-                /* Keep the straight AB drive until the line is reacquired. */
-                if (g_h_mission_diag.line_lost_streak < UINT8_MAX) {
-                    g_h_mission_diag.line_lost_streak++;
-                }
-                return;
-            }
+                H_AB_TARGET_DISTANCE_MM &&
+            g_h_mission_diag.line_valid != 0U) {
             g_h_mission_diag.ab_passed = 1U;
             g_h_mission_diag.ab_pass_count++;
-        } else {
-            /* AB keeps moving while its wide-deadband line guard is active. */
-            g_h_mission_diag.line_lost_streak = 0U;
-            (void) HMission_UpdateLineTargets(now_ms,
-                line_mission->slot);
-            return;
         }
-    }
-
-    /* Keep the H4 ball axis through the first bend.  Releasing exactly at
-       AB caused the high-speed turn to arrive before the ball controller. */
-    if (line_mission->slot == (uint8_t) H_MISSION_AB_CENTER &&
-        g_h_mission_diag.ab_passed != 0U && !s_h4_ball_control_released &&
-        (g_h_mission_diag.line_progress_mm >=
-                H_AB_BALL_RELEASE_DISTANCE_MM ||
-         (g_h_mission_diag.line_yaw_valid != 0U &&
-          g_h_mission_diag.line_clockwise_yaw_deg >=
-                H_AB_BALL_RELEASE_YAW_DEG))) {
-        s_h4_ball_control_released = true;
-        s_h5_planned_target_deci_rpm = 0;
-        BallBalanceService_ClearChassisFeedforward();
-        BallBalanceService_RequestAbort();
-        s_h5_drive_permitted = false;
-        g_h_mission_diag.h5_drive_permitted = 0U;
     }
 
     if (g_h_mission_diag.line_start_cleared == 0U) {
@@ -1845,8 +1781,12 @@ void HMissionService_ProcessReflectance(
         uint8_t strong_count = 0U;
         uint8_t index;
 
+        /* Letters and map graphics can create multiple separated black
+           clusters. Only a single continuous cluster is valid finish
+           evidence. */
         s_line_finish_masks[s_line_finish_mask_index] =
-            g_h_mission_diag.line_active_mask;
+            g_h_mission_diag.line_cluster_count == 1U ?
+                g_h_mission_diag.line_active_mask : 0U;
         s_line_finish_mask_index = (uint8_t) (
             (s_line_finish_mask_index + 1U) % H_LINE_FINISH_WINDOW_SCANS);
         for (index = 0U; index < H_LINE_FINISH_WINDOW_SCANS; index++) {

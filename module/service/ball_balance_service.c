@@ -383,6 +383,8 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
 {
     ball_vision_snapshot_t vision;
     bool snapshot_ok = BallVision_GetSnapshot(now_us, &vision);
+    uint32_t vision_hold_us = s_active_drive_hold != 0U ?
+        H_BALL_DRIVE_VISION_HOLD_US : H_BALL_VISION_HOLD_US;
 
     if (snapshot_ok) {
         BallBalance_NormalizeVision(&vision);
@@ -500,7 +502,7 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
             g_ball_balance_diag.snapshot.vision_valid_age_ms =
                 valid_age_us / 1000U > UINT16_MAX ? UINT16_MAX :
                     (uint16_t) (valid_age_us / 1000U);
-            if (valid_age_us > H_BALL_VISION_HOLD_US &&
+            if (valid_age_us > vision_hold_us &&
                 g_ball_balance_diag.snapshot.state !=
                     (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE) {
                 g_ball_balance_diag.snapshot.vision_valid = 0U;
@@ -519,7 +521,7 @@ static void BallBalance_ServiceClosedLoop(uint32_t now_us)
         g_ball_balance_diag.snapshot.vision_valid_age_ms =
             invalid_age_us / 1000U > UINT16_MAX ? UINT16_MAX :
                 (uint16_t) (invalid_age_us / 1000U);
-        if (invalid_age_us > H_BALL_VISION_HOLD_US &&
+        if (invalid_age_us > vision_hold_us &&
             g_ball_balance_diag.snapshot.state !=
                 (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE) {
             BallBalance_BeginLevelingFault(snapshot_ok &&

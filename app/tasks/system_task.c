@@ -7,6 +7,7 @@
 #include "bsp_encoder.h"
 #include "bsp_time.h"
 #include "chassis_actuator.h"
+#include "h_mission_service.h"
 #include "motor_profile.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
@@ -181,6 +182,43 @@ void SystemTask_Entry(void *context)
                 sample.flags |=
                     TELEMETRY_CONTROL_FLAG_HEADING_CLOSED_LOOP |
                     TELEMETRY_CONTROL_FLAG_DISTANCE_CLOSED_LOOP;
+            }
+        }
+        if (g_h_mission_diag.active_mission < H_MISSION_COUNT) {
+            uint32_t mission_code =
+                (uint32_t) g_h_mission_diag.active_mission + 1U;
+            uint32_t line_lost = g_h_mission_diag.line_lost_streak;
+            uint32_t finish_evidence =
+                g_h_mission_diag.line_finish_evidence_count;
+
+            if (line_lost > 0x1FU) {
+                line_lost = 0x1FU;
+            }
+            if (finish_evidence > 0x07U) {
+                finish_evidence = 0x07U;
+            }
+            sample.flags |=
+                (mission_code << TELEMETRY_CONTROL_FLAG_H_MISSION_SHIFT) &
+                    TELEMETRY_CONTROL_FLAG_H_MISSION_MASK;
+            if (g_h_mission_diag.line_valid != 0U) {
+                sample.flags |= TELEMETRY_CONTROL_FLAG_H_LINE_VALID;
+            }
+            if (g_h_mission_diag.line_finish_armed != 0U) {
+                sample.flags |= TELEMETRY_CONTROL_FLAG_H_FINISH_ARMED;
+            }
+            if (g_h_mission_diag.line_finish_streak != 0U) {
+                sample.flags |= TELEMETRY_CONTROL_FLAG_H_FINISH_DETECTED;
+            }
+            sample.flags |= ((uint32_t)
+                g_h_mission_diag.line_terminal_status <<
+                    TELEMETRY_CONTROL_FLAG_H_TERMINAL_SHIFT) &
+                TELEMETRY_CONTROL_FLAG_H_TERMINAL_MASK;
+            sample.flags |= line_lost <<
+                TELEMETRY_CONTROL_FLAG_H_LINE_LOST_SHIFT;
+            sample.flags |= finish_evidence <<
+                TELEMETRY_CONTROL_FLAG_H_FINISH_EVID_SHIFT;
+            if (g_h_mission_diag.line_start_cleared != 0U) {
+                sample.flags |= TELEMETRY_CONTROL_FLAG_H_START_CLEARED;
             }
         }
 #if !ECHO_IMU_DIAGNOSTIC_CAPTURE

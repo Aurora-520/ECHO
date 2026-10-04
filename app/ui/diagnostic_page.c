@@ -5,6 +5,7 @@
 #include "FreeRTOS.h"
 #include "bsp_reset.h"
 #include "ssd1306.h"
+//yutyt
 
 #define UI_LINE_MAX_CHARS 21U
 
@@ -12,7 +13,7 @@ typedef struct {
     char text[UI_LINE_MAX_CHARS + 1U];
     uint8_t length;
 } ui_line_t;
-
+//
 static void UiLine_Clear(ui_line_t *line)
 {
     line->length = 0U;
